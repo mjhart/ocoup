@@ -10,10 +10,12 @@ module Player_id : sig
   type t [@@deriving sexp, equal]
 
   val of_int : int -> t
+  val to_int : t -> int
 end = struct
   type t = int [@@deriving sexp, equal]
 
   let of_int = Fn.id
+  let to_int = Fn.id
 end
 
 module Hand = struct
@@ -47,14 +49,14 @@ module Action = struct
   [@@deriving sexp]
 end
 
-(* The full game state includes all players, the available Treasury coins,
-   the current Court deck (for exchanges and card replacement), and the current phase. *)
 module Game_state = struct
   type t = {
     players : player list;  (** the first player in the list is active *)
     deck : Card.t list;
   }
   [@@deriving sexp]
+
+  let deck t = t.deck
 
   let modify_player t id ~f =
     let new_players =
@@ -64,7 +66,6 @@ module Game_state = struct
     { t with players = new_players }
 
   let get_active_player_id t = List.hd_exn t.players |> fun player -> player.id
-  let _get_players t = t.players
 
   let modify_active_player t ~f =
     let active_player = List.hd_exn t.players in
@@ -131,19 +132,13 @@ let init () = Game_state.init ()
 
 open Async
 
-let _get_line =
- fun () ->
-  match%map Reader.read_line (Lazy.force Reader.stdin) with
-  | `Eof -> failwith "EOF"
-  | `Ok action_str -> action_str
-
 module Player : sig
   val choose_action : Game_state.t -> Player_id.t -> Action.t Deferred.t
-  val choose_assasination_response : [ `Allow | `Block ] Deferred.t
+  val choose_assasination_response : unit -> [ `Allow | `Block ] Deferred.t
   val reveal_card : unit -> [ `Card_1 | `Card_2 ] Deferred.t
 end = struct
   (* TODO: implement *)
-  let choose_action _game_state _active_player_id =
+  let choose_action _game_state active_player_id =
     (* TODO: implement for real. Make sure they have enough coins *)
     (* return
       (List.random_element_exn
@@ -155,6 +150,8 @@ end = struct
                     not (Player_id.equal player.id active_player_id))
              |> fun player -> player.id );
          ]) *)
+    print_endline
+      (sprintf "You are player %d" (Player_id.to_int active_player_id));
     print_endline "Choose action (I/FA/C/T/S/E)";
     match%bind Reader.read_line (Lazy.force Reader.stdin) with
     | `Eof -> failwith "EOF"
@@ -165,7 +162,7 @@ end = struct
             return (Action.Assassinate (Player_id.of_int (Int.of_string n)))
         | _ -> failwith "Invalid action")
 
-  let choose_assasination_response =
+  let choose_assasination_response () =
     print_endline "Assassinate? (A/B)";
     match%bind Reader.read_line (Lazy.force Reader.stdin) with
     | `Eof -> failwith "EOF"
@@ -208,9 +205,27 @@ let lose_influence game_state target_player_id =
           Deferred.Result.return { game_state with players = remaining_players }
       )
 
-let choose_new_card game_state _active_player_id =
-  (* TODO: implement *)
-  return game_state
+let randomly_get_new_card game_state active_player_id card_to_replace =
+  (* TODO make sure to emit an event with new card info *)
+  (* let new_card = List.random_element_exn game_state.deck in *)
+  let deck_with_replacement = card_to_replace :: Game_state.deck game_state in
+  let shuffled_deck = List.permute deck_with_replacement in
+  let replacement_card = List.hd_exn shuffled_deck in
+  let remaining_deck = List.tl_exn shuffled_deck in
+  let new_game_state =
+    Game_state.modify_player game_state active_player_id ~f:(fun player ->
+        let new_hand =
+          match player.hand with
+          | Hand.Both (card_1, card_2) -> (
+              match Card.equal card_1 card_to_replace with
+              | true -> Hand.Both (replacement_card, card_2)
+              | false -> Hand.Both (card_1, replacement_card))
+          | Hand.One { hidden = _; revealed } ->
+              Hand.One { hidden = replacement_card; revealed }
+        in
+        { player with hand = new_hand })
+  in
+  { new_game_state with deck = remaining_deck }
 
 let required_card_for_action = function
   | `Assassinate -> Card.Assassin
@@ -223,17 +238,6 @@ let required_card_for_action = function
 let handle_challenge game_state acting_player_id action =
   let offer_challenge _acting_player_id =
     (* TODO: implement *)
-    (* return
-      (List.random_element_exn
-         [
-           `No_challenge;
-           `Challenge
-             ( Game_state.get_players game_state
-             |> List.filter ~f:(fun player ->
-                    not (Player_id.equal player.id acting_player_id))
-             |> List.random_element_exn
-             |> fun player -> player.id );
-         ]) *)
     print_endline "Offer challenge? (N/C <player_id>)";
     match%bind Reader.read_line (Lazy.force Reader.stdin) with
     | `Eof -> failwith "EOF"
@@ -244,25 +248,23 @@ let handle_challenge game_state acting_player_id action =
         | _ -> failwith "Invalid action")
   in
   match%bind offer_challenge acting_player_id with
+  | `No_challenge -> Deferred.Result.return (`No_challenge game_state)
   | `Challenge challenger_player_id -> (
-      match
-        Game_state.has_card game_state acting_player_id
-          (required_card_for_action action)
-      with
+      let card_to_replace = required_card_for_action action in
+      match Game_state.has_card game_state acting_player_id card_to_replace with
       | false ->
           let%map.Deferred.Result new_game_state =
             lose_influence game_state acting_player_id
           in
           `Successfully_challenged new_game_state
       | true ->
-          let%bind game_state_after_new_card =
-            choose_new_card game_state acting_player_id
+          let game_state_after_new_card =
+            randomly_get_new_card game_state acting_player_id card_to_replace
           in
           let%map.Deferred.Result new_game_state =
             lose_influence game_state_after_new_card challenger_player_id
           in
           `Failed_challenge new_game_state)
-  | `No_challenge -> Deferred.Result.return (`No_challenge game_state)
 
 let assassinate game_state active_player_id target_player_id =
   match%bind.Deferred.Result
@@ -273,7 +275,7 @@ let assassinate game_state active_player_id target_player_id =
   | `No_challenge post_challenge_game_state
   | `Failed_challenge post_challenge_game_state -> (
       match%bind.Deferred.Result
-        Player.choose_assasination_response >>| Result.return
+        Player.choose_assasination_response () >>| Result.return
       with
       | `Allow -> lose_influence game_state target_player_id
       | `Block -> (
@@ -306,13 +308,11 @@ let take_turn_result game_state =
 let take_turn game_state =
   print_s [%sexp (game_state : Game_state.t)];
   match%bind take_turn_result game_state with
-  | Ok game_state' ->
-      print_s [%sexp (game_state' : Game_state.t)];
-      return (`Repeat (Game_state.end_turn game_state'))
+  | Ok game_state' -> return (`Repeat (Game_state.end_turn game_state'))
   | Error final_game_state -> return (`Finished final_game_state)
 
 let run_game () =
-  let%map _final_game_state =
+  let%map final_game_state =
     Deferred.repeat_until_finished (Game_state.init ()) take_turn
   in
-  ()
+  print_s [%sexp (final_game_state : Game_state.t)]
