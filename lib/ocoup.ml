@@ -214,6 +214,7 @@ end = struct
     | `Ok action_str -> (
         match String.split action_str ~on:' ' with
         | [ "I" ] -> return Action.Income
+        | [ "FA" ] -> return Action.ForeignAid
         | [ "A"; n ] ->
             return (Action.Assassinate (Player_id.of_int (Int.of_string n)))
         | _ -> failwith "Invalid action")
@@ -297,12 +298,23 @@ let required_card_for_action = function
   | `Exchange -> Ambassador
   | `Tax -> Duke
   | `Block_assassination -> Contessa
+  | `Block_foreign_aid -> Duke
 
 (* module Challenge_result = struct *)
 let handle_challenge game_state acting_player_id action =
   let offer_challenge _acting_player_id =
     (* TODO: implement *)
-    print_endline "Offer challenge? (N/C <player_id>)";
+    print_s
+      [%message
+        "Offer challenge? (N/C <player_id>)"
+          (acting_player_id : Player_id.t)
+          (action
+            : [< `Assassinate
+              | `Block_assassination
+              | `Block_foreign_aid
+              | `Exchange
+              | `Steal
+              | `Tax ])];
     match%bind Reader.read_line (Lazy.force Reader.stdin) with
     | `Eof -> failwith "EOF"
     | `Ok action_str -> (
@@ -353,6 +365,35 @@ let assassinate game_state active_player_id target_player_id =
           | `Failed_challenge post_second_challenge_game_state ->
               Deferred.Result.return post_second_challenge_game_state))
 
+let take_foreign_aid game_state =
+  let take_two_coins game_state =
+    Game_state.modify_active_player game_state ~f:(fun player ->
+        { player with coins = player.coins + 2 })
+  in
+  match%bind.Deferred.Result
+    (* TODO implement properly *)
+    print_endline "Block foreign aid? (N/C <player_id>)";
+    match%bind Reader.read_line (Lazy.force Reader.stdin) with
+    | `Eof -> failwith "EOF"
+    | `Ok action_str ->
+        (match String.split action_str ~on:' ' with
+        | [ "N" ] -> return `Allow
+        | [ "C"; n ] -> return (`Block (Player_id.of_int (Int.of_string n)))
+        | _ -> failwith "Invalid action")
+        >>| Result.return
+  with
+  | `Block blocking_player_id -> (
+      match%bind.Deferred.Result
+        handle_challenge game_state blocking_player_id `Block_foreign_aid
+      with
+      | `Successfully_challenged post_second_challenge_game_state ->
+          Deferred.Result.return
+            (take_two_coins post_second_challenge_game_state)
+      | `No_challenge post_second_challenge_game_state
+      | `Failed_challenge post_second_challenge_game_state ->
+          Deferred.Result.return post_second_challenge_game_state)
+  | `Allow -> Deferred.Result.return (take_two_coins game_state)
+
 let take_turn_result game_state =
   let active_player_id = Game_state.get_active_player_id game_state in
 
@@ -371,8 +412,8 @@ let take_turn_result game_state =
   | Income -> take_income game_state |> Deferred.Result.return
   | Assassinate target_player_id ->
       assassinate game_state active_player_id target_player_id
-  | ForeignAid | Coup _ | Tax | Steal _ | Exchange ->
-      Deferred.Result.return game_state
+  | ForeignAid -> take_foreign_aid game_state
+  | Coup _ | Tax | Steal _ | Exchange -> Deferred.Result.return game_state
 
 let take_turn game_state =
   print_newline ();
