@@ -205,6 +205,14 @@ let lose_influence game_state target_player_id =
           Deferred.Result.return { game_state with players = remaining_players }
       )
 
+let lose_influence game_state target_player_id =
+  let%map.Deferred.Result new_game_state =
+    lose_influence game_state target_player_id
+  in
+  print_s [%message "LOST INFLUENCE: " (target_player_id : Player_id.t)];
+  print_s [%sexp (new_game_state : Game_state.t)];
+  new_game_state
+
 let randomly_get_new_card game_state active_player_id card_to_replace =
   (* TODO make sure to emit an event with new card info *)
   (* let new_card = List.random_element_exn game_state.deck in *)
@@ -277,17 +285,17 @@ let assassinate game_state active_player_id target_player_id =
       match%bind.Deferred.Result
         Player.choose_assasination_response () >>| Result.return
       with
-      | `Allow -> lose_influence game_state target_player_id
+      | `Allow -> lose_influence post_challenge_game_state target_player_id
       | `Block -> (
           match%bind.Deferred.Result
             handle_challenge post_challenge_game_state target_player_id
               `Block_assassination
           with
-          | `Successfully_challenged post_challenge_game_state ->
-              Deferred.Result.return post_challenge_game_state
-          | `No_challenge post_challenge_game_state
-          | `Failed_challenge post_challenge_game_state ->
-              lose_influence post_challenge_game_state target_player_id))
+          | `Successfully_challenged post_second_challenge_game_state ->
+              lose_influence post_second_challenge_game_state target_player_id
+          | `No_challenge post_second_challenge_game_state
+          | `Failed_challenge post_second_challenge_game_state ->
+              Deferred.Result.return post_second_challenge_game_state))
 
 let take_turn_result game_state =
   let active_player_id = Game_state.get_active_player_id game_state in
@@ -306,6 +314,7 @@ let take_turn_result game_state =
       Deferred.Result.return game_state
 
 let take_turn game_state =
+  print_newline ();
   print_s [%sexp (game_state : Game_state.t)];
   match%bind take_turn_result game_state with
   | Ok game_state' -> return (`Repeat (Game_state.end_turn game_state'))
