@@ -1,0 +1,6 @@
+(executable
+ (public_name ocoup)
+ (name main)
+ (libraries async core ocoup)
+ (preprocess
+  (pps ppx_jane)))
