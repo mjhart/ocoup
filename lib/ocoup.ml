@@ -1,5 +1,11 @@
 open! Core
 
+(* TODO:
+   - implement other actions
+   - timeout for player action
+   - implement players
+ *)
+
 (* The characters (and cards) available in the game *)
 module Card = struct
   type t = Duke | Assassin | Captain | Ambassador | Contessa
@@ -47,6 +53,29 @@ module Action = struct
     | Steal of Player_id.t (* Captain: steal 1 or 2 coins from target *)
     | Exchange (* Ambassador: exchange cards with the Court deck *)
   [@@deriving sexp]
+
+  let valid_actions coins =
+    let cost = function
+      | Income -> 0
+      | ForeignAid -> 0
+      | Coup _ -> 7
+      | Tax -> 3
+      | Assassinate _ -> 3
+      | Steal _ -> 2
+      | Exchange -> 0
+    in
+    let all_actions =
+      [
+        Income;
+        ForeignAid;
+        Coup (Player_id.of_int (-1));
+        Tax;
+        Assassinate (Player_id.of_int (-1));
+        Steal (Player_id.of_int (-1));
+        Exchange;
+      ]
+    in
+    List.filter all_actions ~f:(fun action -> coins >= cost action)
 end
 
 module Game_state = struct
@@ -78,12 +107,39 @@ module Game_state = struct
   let get_player t id =
     List.find_exn t.players ~f:(fun p -> Player_id.equal p.id id)
 
+  let is_valid_action t active_player_id action =
+    let player = get_player t active_player_id in
+    let cost, target_player_id =
+      match action with
+      | Action.Income | ForeignAid | Tax | Exchange -> (0, None)
+      | Coup target_player_id -> (7, Some target_player_id)
+      | Assassinate target_player_id -> (3, Some target_player_id)
+      | Steal target_player_id -> (0, Some target_player_id)
+    in
+    let has_enough_coins = player.coins >= cost
+    and is_valid_target =
+      Option.value_map target_player_id ~default:true
+        ~f:(fun target_player_id ->
+          List.find_map t.players ~f:(fun p ->
+              if Player_id.equal p.id target_player_id then Some p else None)
+          |> Option.is_some)
+    and not_targeting_self =
+      Option.value_map target_player_id ~default:true
+        ~f:(fun target_player_id ->
+          not (Player_id.equal target_player_id active_player_id))
+    in
+    has_enough_coins && is_valid_target && not_targeting_self
+
   let has_card t id card =
     let player = get_player t id in
     match player.hand with
     | Hand.Both (card_1, card_2) ->
         List.mem [ card_1; card_2 ] card ~equal:Card.equal
     | Hand.One { hidden; revealed = _ } -> Card.equal hidden card
+
+  let _valid_actions t active_player_id =
+    let player = get_player t active_player_id in
+    Action.valid_actions player.coins
 
   let sorted_deck =
     [ 1; 2; 3; 4 ]
@@ -133,12 +189,12 @@ let init () = Game_state.init ()
 open Async
 
 module Player : sig
-  val choose_action : Game_state.t -> Player_id.t -> Action.t Deferred.t
+  val choose_action : Player_id.t -> Action.t Deferred.t
   val choose_assasination_response : unit -> [ `Allow | `Block ] Deferred.t
   val reveal_card : unit -> [ `Card_1 | `Card_2 ] Deferred.t
 end = struct
   (* TODO: implement *)
-  let choose_action _game_state active_player_id =
+  let choose_action active_player_id =
     (* TODO: implement for real. Make sure they have enough coins *)
     (* return
       (List.random_element_exn
@@ -299,11 +355,16 @@ let assassinate game_state active_player_id target_player_id =
 
 let take_turn_result game_state =
   let active_player_id = Game_state.get_active_player_id game_state in
-  let%bind.Deferred.Result () =
-    after Time_float.Span.second >>| Result.return
-  in
+
   let%bind.Deferred.Result action =
-    Player.choose_action game_state active_player_id >>| Result.return
+    Deferred.repeat_until_finished () (fun () ->
+        let%map action = Player.choose_action active_player_id in
+        match Game_state.is_valid_action game_state active_player_id action with
+        | true -> `Finished action
+        | false ->
+            print_endline "Invalid action";
+            `Repeat ())
+    >>| Result.return
   in
   print_s [%sexp (action : Action.t)];
   match (action : Action.t) with
