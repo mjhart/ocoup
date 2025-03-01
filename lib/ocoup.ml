@@ -31,10 +31,13 @@ module Hand = struct
   [@@deriving sexp]
 end
 
-(* A player has an identifier, a name, a coin count, and two sets of cards:
-   - 'hand': face-down cards that represent their current influence.
-   - 'revealed': face-up cards that have been lost. *)
-type player = { id : Player_id.t; coins : int; hand : Hand.t } [@@deriving sexp]
+module Player = struct
+  type t = { id : Player_id.t; coins : int; hand : Hand.t } [@@deriving sexp]
+
+  let id t = t.id
+  (* let coins t = t.coins
+  let hand t = t.hand *)
+end
 
 (* Actions a player may choose. Some actions have a target (represented by a player id). *)
 module Action = struct
@@ -80,7 +83,7 @@ end
 
 module Game_state = struct
   type t = {
-    players : player list;  (** the first player in the list is active *)
+    players : Player.t list;  (** the first player in the list is active *)
     deck : Card.t list;
   }
   [@@deriving sexp]
@@ -94,7 +97,8 @@ module Game_state = struct
     in
     { t with players = new_players }
 
-  let get_active_player_id t = List.hd_exn t.players |> fun player -> player.id
+  let get_active_player_id t =
+    List.hd_exn t.players |> fun player -> Player.id player
 
   let modify_active_player t ~f =
     let active_player = List.hd_exn t.players in
@@ -147,7 +151,7 @@ module Game_state = struct
            [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
 
   let create_player id card_1 card_2 =
-    { id; coins = 2; hand = Hand.Both (card_1, card_2) }
+    { Player.id; coins = 2; hand = Hand.Both (card_1, card_2) }
 
   let init () =
     let deck =
@@ -188,7 +192,7 @@ let init () = Game_state.init ()
 
 open Async
 
-module Player : sig
+module Player_input : sig
   val choose_action : Player_id.t -> Action.t Deferred.t
   val choose_assasination_response : unit -> [ `Allow | `Block ] Deferred.t
   val reveal_card : unit -> [ `Card_1 | `Card_2 ] Deferred.t
@@ -239,7 +243,7 @@ let lose_influence game_state target_player_id =
   match player.hand with
   | Hand.Both (card_1, card_2) ->
       let%map.Deferred.Result revealed_card =
-        Player.reveal_card () >>| Result.return
+        Player_input.reveal_card () >>| Result.return
       in
       let new_game_state =
         Game_state.modify_player game_state target_player_id ~f:(fun player ->
@@ -351,7 +355,7 @@ let assassinate game_state active_player_id target_player_id =
   | `No_challenge post_challenge_game_state
   | `Failed_challenge post_challenge_game_state -> (
       match%bind.Deferred.Result
-        Player.choose_assasination_response () >>| Result.return
+        Player_input.choose_assasination_response () >>| Result.return
       with
       | `Allow -> lose_influence post_challenge_game_state target_player_id
       | `Block -> (
@@ -399,7 +403,7 @@ let take_turn_result game_state =
 
   let%bind.Deferred.Result action =
     Deferred.repeat_until_finished () (fun () ->
-        let%map action = Player.choose_action active_player_id in
+        let%map action = Player_input.choose_action active_player_id in
         match Game_state.is_valid_action game_state active_player_id action with
         | true -> `Finished action
         | false ->
