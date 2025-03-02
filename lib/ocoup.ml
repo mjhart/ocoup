@@ -76,12 +76,22 @@ module Hand = struct
   [@@deriving sexp]
 end
 
+module Cancelled_reason = struct
+  type t = Other_player_responded of Player_id.t [@@deriving sexp]
+end
+
 module Player_io : sig
   type t
 
   val choose_action : t -> Action.t Deferred.t
   val choose_assasination_response : t -> unit -> [ `Allow | `Block ] Deferred.t
-  val choose_foreign_aid_response : t -> unit -> [ `Allow | `Block ] Deferred.t
+
+  val choose_foreign_aid_response :
+    t ->
+    unit ->
+    cancelled_reason:Cancelled_reason.t Deferred.t ->
+    [ `Allow | `Block ] Deferred.t
+
   val reveal_card : t -> unit -> [ `Card_1 | `Card_2 ] Deferred.t
 
   val offer_challenge :
@@ -137,16 +147,22 @@ end = struct
             | [ "Y" ] -> `Block
             | _ -> failwith "Invalid action"))
 
-  let choose_foreign_aid_response t () =
-    with_stdin t ~f:(fun stdin ->
-        print_endline "Block foreign aid? (Y/N)";
-        match%map Reader.read_line stdin with
-        | `Eof -> failwith "EOF"
-        | `Ok action_str -> (
-            match String.split action_str ~on:' ' with
-            | [ "Y" ] -> `Block
-            | [ "N" ] -> `Allow
-            | _ -> failwith "Invalid action"))
+  let choose_foreign_aid_response t () ~cancelled_reason =
+    Deferred.choose
+      [
+        choice cancelled_reason (fun _ -> `Allow);
+        choice
+          (with_stdin t ~f:(fun stdin ->
+               print_endline "Block foreign aid? (Y/N)";
+               match%map Reader.read_line stdin with
+               | `Eof -> failwith "EOF"
+               | `Ok action_str -> (
+                   match String.split action_str ~on:' ' with
+                   | [ "Y" ] -> `Block
+                   | [ "N" ] -> `Allow
+                   | _ -> failwith "Invalid action")))
+          Fn.id;
+      ]
 
   let reveal_card _t () = return `Card_1
   (* TODO: implement *)
@@ -369,46 +385,55 @@ let required_card_for_action = function
   | `Block_assassination -> Contessa
   | `Block_foreign_aid -> Duke
 
-let interruptible responses =
+let handle_response_race game_state acting_player_id ~f =
+  (* TODO: there's probably a memory leak in here *)
+  let other_player_responded = Ivar.create () in
+  let responses =
+    Game_state.players game_state
+    |> List.filter ~f:(fun player ->
+           not (Player_id.equal player.id acting_player_id))
+    |> List.map ~f:(fun player ->
+           f player (Ivar.read other_player_responded) >>| fun response ->
+           (player.id, response))
+  in
   let blocked =
     responses
     |> List.map
          ~f:
-           (Deferred.bind ~f:(function
-             | `Allow -> Deferred.never ()
-             | `Block _ as block -> return block))
+           (Deferred.bind ~f:(fun ((player_id : Player_id.t), response) ->
+                match response with
+                | `Allow -> Deferred.never ()
+                | `Block ->
+                    Ivar.fill_if_empty other_player_responded
+                      (Cancelled_reason.Other_player_responded player_id);
+                    return (`Blocked_by player_id)))
     |> Deferred.any
   in
   let allowed =
     responses
     |> List.map
          ~f:
-           (Deferred.bind ~f:(function
-             | `Allow -> return `Allow
-             | `Block _ -> Deferred.never ()))
+           (Deferred.bind ~f:(fun ((_ : Player_id.t), response) ->
+                match response with
+                | `Allow -> return `Allow
+                | `Block -> Deferred.never ()))
     |> Deferred.all
     |> Deferred.map ~f:(fun _ -> `Allow)
   in
   Deferred.any [ blocked; allowed ]
 
-let handle_response_race game_state acting_player_id ~f =
-  Game_state.players game_state
-  |> List.filter ~f:(fun player ->
-         not (Player_id.equal player.id acting_player_id))
-  |> List.map ~f:(fun player -> f player)
-  |> interruptible
-
 let handle_challenge game_state acting_player_id action =
   let%bind challenge_result =
-    handle_response_race game_state acting_player_id ~f:(fun player ->
+    handle_response_race game_state acting_player_id
+      ~f:(fun player _cancelled_reason ->
         Player_io.offer_challenge player.player_io acting_player_id action
         >>| function
         | `No_challenge -> `Allow
-        | `Challenge -> `Block player.id)
+        | `Challenge -> `Block)
   in
   match challenge_result with
   | `Allow -> Deferred.Result.return (`No_challenge game_state)
-  | `Block challenger_player_id -> (
+  | `Blocked_by challenger_player_id -> (
       let card_to_replace = required_card_for_action action in
       match Game_state.has_card game_state acting_player_id card_to_replace with
       | false ->
@@ -474,12 +499,14 @@ let take_foreign_aid game_state =
   in
   match%bind
     handle_response_race game_state (Game_state.get_active_player game_state).id
-      ~f:(fun player ->
-        Player_io.choose_foreign_aid_response player.player_io () >>| function
+      ~f:(fun player cancelled_reason ->
+        Player_io.choose_foreign_aid_response player.player_io ()
+          ~cancelled_reason
+        >>| function
         | `Allow -> `Allow
-        | `Block -> `Block player.id)
+        | `Block -> `Block)
   with
-  | `Block blocking_player_id -> (
+  | `Blocked_by blocking_player_id -> (
       match%bind.Deferred.Result
         handle_challenge game_state blocking_player_id `Block_foreign_aid
       with
