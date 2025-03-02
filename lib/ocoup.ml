@@ -6,7 +6,6 @@ open! Async
    - timeout for player action
    - implement players
    - tell players about stuff
-   - implement cancelling challenges
  *)
 
 (* The characters (and cards) available in the game *)
@@ -107,7 +106,25 @@ module Player_io : sig
     [ `No_challenge | `Challenge ] Deferred.t
 
   val cli_player : Player_id.t -> t
+  val notify_of_action_choice : t -> Player_id.t -> Action.t -> unit Deferred.t
+  val notify_of_lost_influence : t -> Player_id.t -> Card.t -> unit Deferred.t
+  (* 
+          what to players have to learn about:
+          - their initial cards
+          - getting cards
+          - player choices
+            - challenges
+            - blocking
+          - losing influence
+          - game end
+          *)
 end = struct
+  let notify_of_lost_influence _t player_id card =
+    print_s
+      [%message
+        "Player lost influence" (player_id : Player_id.t) (card : Card.t)]
+    |> return
+
   let stdin_throttle =
     Lazy.from_fun (fun () ->
         Throttle.Sequencer.create ~continue_on_error:false ())
@@ -188,6 +205,12 @@ end = struct
                 | [ "N" ] -> `No_challenge
                 | [ "Y" ] -> `Challenge
                 | _ -> failwith "Invalid action")))
+
+  let notify_of_action_choice _t player_id action =
+    print_s
+      [%message
+        "Player chose action" (player_id : Player_id.t) (action : Action.t)]
+    |> return
 end
 
 module Player = struct
@@ -282,6 +305,8 @@ module Game_state = struct
       hand = Hand.Both (card_1, card_2);
     }
 
+  let num_players = 3
+
   let init () =
     let deck =
       Random.self_init ();
@@ -294,7 +319,7 @@ module Game_state = struct
           | None -> (pairs_acc, Some card)
           | Some prev -> ((card, prev) :: pairs_acc, None))
     in
-    let player_cards, remaining_cards = List.split_n paired_deck 4 in
+    let player_cards, remaining_cards = List.split_n paired_deck num_players in
     let players =
       List.mapi player_cards ~f:(fun id (card_1, card_2) ->
           create_player (Player_id.of_int id) card_1 card_2)
@@ -321,39 +346,44 @@ let init () = Game_state.init ()
 let game_over = Deferred.Result.fail
 
 let lose_influence game_state target_player_id =
-  let player = Game_state.get_player game_state target_player_id in
-  match player.hand with
-  | Hand.Both (card_1, card_2) ->
-      let%map.Deferred.Result revealed_card =
-        Player_io.reveal_card player.player_io () >>| Result.return
-      in
-      let new_game_state =
-        Game_state.modify_player game_state target_player_id ~f:(fun player ->
-            let new_hand =
-              match revealed_card with
-              | `Card_1 -> Hand.One { hidden = card_2; revealed = card_1 }
-              | `Card_2 -> Hand.One { hidden = card_1; revealed = card_2 }
-            in
-            { player with hand = new_hand })
-      in
-      new_game_state
-  | Hand.One _ -> (
-      let remaining_players =
-        List.filter game_state.players ~f:(fun player ->
-            not (Player_id.equal player.id target_player_id))
-      in
-      match List.length remaining_players with
-      | 1 -> game_over { game_state with players = remaining_players }
-      | _ ->
-          Deferred.Result.return { game_state with players = remaining_players }
-      )
-
-let lose_influence game_state target_player_id =
-  let%map.Deferred.Result new_game_state =
-    lose_influence game_state target_player_id
+  let%bind.Deferred.Result new_game_state, revealed_card =
+    let player = Game_state.get_player game_state target_player_id in
+    match player.hand with
+    | Hand.Both (card_1, card_2) ->
+        let%map.Deferred.Result revealed_card =
+          Player_io.reveal_card player.player_io () >>| Result.return
+        in
+        let new_game_state =
+          Game_state.modify_player game_state target_player_id ~f:(fun player ->
+              let new_hand =
+                match revealed_card with
+                | `Card_1 -> Hand.One { hidden = card_2; revealed = card_1 }
+                | `Card_2 -> Hand.One { hidden = card_1; revealed = card_2 }
+              in
+              { player with hand = new_hand })
+        in
+        (* TODO fix *)
+        (new_game_state, Card.Contessa)
+    | Hand.One { hidden; revealed = _ } -> (
+        let remaining_players =
+          List.filter game_state.players ~f:(fun player ->
+              not (Player_id.equal player.id target_player_id))
+        in
+        match List.length remaining_players with
+        | 1 -> game_over { game_state with players = remaining_players }
+        | _ ->
+            Deferred.Result.return
+              ({ game_state with players = remaining_players }, hidden))
   in
   print_s [%message "LOST INFLUENCE: " (target_player_id : Player_id.t)];
   print_s [%sexp (new_game_state : Game_state.t)];
+  let%map.Deferred.Result () =
+    Game_state.players new_game_state
+    |> List.map ~f:(fun player ->
+           Player_io.notify_of_lost_influence player.player_io target_player_id
+             revealed_card)
+    |> Deferred.all_unit >>| Result.return
+  in
   new_game_state
 
 let randomly_get_new_card game_state active_player_id card_to_replace =
@@ -452,17 +482,6 @@ let handle_challenge game_state acting_player_id action =
           in
           `Failed_challenge new_game_state)
 
-(* 
-          what to players have to learn about:
-          - their initial cards
-          - getting cards
-          - player choices
-            - actions
-            - challenges
-            - blocking
-          - losing influence
-          - game end
-          *)
 let assassinate game_state active_player_id target_player_id =
   let game_state =
     Game_state.modify_active_player game_state ~f:(fun player ->
@@ -534,7 +553,15 @@ let take_turn_result game_state =
   in
   print_s [%sexp (action : Action.t)];
   match (action : Action.t) with
-  | Income -> take_income game_state |> Deferred.Result.return
+  | Income ->
+      let%map.Deferred.Result () =
+        Game_state.players game_state
+        |> List.map ~f:(fun player ->
+               Player_io.notify_of_action_choice player.player_io
+                 active_player.id action)
+        |> Deferred.all_unit >>| Result.return
+      in
+      take_income game_state
   | Assassinate target_player_id ->
       assassinate game_state active_player.id target_player_id
   | ForeignAid -> take_foreign_aid game_state
