@@ -5,6 +5,7 @@ open! Async
    - implement other actions
    - timeout for player action
    - implement players
+   - tell players about stuff
  *)
 
 (* The characters (and cards) available in the game *)
@@ -80,49 +81,84 @@ module Player_io : sig
   val choose_action : t -> Player_id.t -> Action.t Deferred.t
   val choose_assasination_response : t -> unit -> [ `Allow | `Block ] Deferred.t
   val reveal_card : t -> unit -> [ `Card_1 | `Card_2 ] Deferred.t
-  val cli_player : t
+
+  val offer_challenge :
+    t ->
+    Player_id.t ->
+    [ `Assassinate
+    | `Block_assassination
+    | `Block_foreign_aid
+    | `Exchange
+    | `Steal
+    | `Tax ] ->
+    [ `No_challenge | `Challenge ] Deferred.t
+
+  val cli_player : unit -> t
 end = struct
+  let stdin_throttle =
+    Lazy.from_fun (fun () ->
+        Throttle.Sequencer.create ~continue_on_error:false ())
+
   type t = unit
 
-  let cli_player = ()
+  let cli_player () = ()
+
+  let with_stdin ~f =
+    Throttle.enqueue (Lazy.force stdin_throttle) (fun () ->
+        f (Lazy.force Reader.stdin))
 
   (* TODO: implement *)
-  let choose_action () active_player_id =
+  let choose_action _t active_player_id =
     (* TODO: implement for real. Make sure they have enough coins *)
-    (* return
-      (List.random_element_exn
-         [
-           Action.Income;
-           Action.Assassinate
-             ( Game_state.get_players game_state
-             |> List.find_exn ~f:(fun player ->
-                    not (Player_id.equal player.id active_player_id))
-             |> fun player -> player.id );
-         ]) *)
-    print_endline
-      (sprintf "You are player %d" (Player_id.to_int active_player_id));
-    print_endline "Choose action (I/FA/C/T/S/E)";
-    match%bind Reader.read_line (Lazy.force Reader.stdin) with
-    | `Eof -> failwith "EOF"
-    | `Ok action_str -> (
-        match String.split action_str ~on:' ' with
-        | [ "I" ] -> return Action.Income
-        | [ "FA" ] -> return Action.ForeignAid
-        | [ "A"; n ] ->
-            return (Action.Assassinate (Player_id.of_int (Int.of_string n)))
-        | _ -> failwith "Invalid action")
+    with_stdin ~f:(fun stdin ->
+        print_endline
+          (sprintf "You are player %d" (Player_id.to_int active_player_id));
+        print_endline "Choose action (I/FA/C/T/S/E)";
+        match%bind Reader.read_line stdin with
+        | `Eof -> failwith "EOF"
+        | `Ok action_str -> (
+            match String.split action_str ~on:' ' with
+            | [ "I" ] -> return Action.Income
+            | [ "FA" ] -> return Action.ForeignAid
+            | [ "A"; n ] ->
+                return (Action.Assassinate (Player_id.of_int (Int.of_string n)))
+            | _ -> failwith "Invalid action"))
 
-  let choose_assasination_response () () =
-    print_endline "Assassinate? (A/B)";
-    match%bind Reader.read_line (Lazy.force Reader.stdin) with
-    | `Eof -> failwith "EOF"
-    | `Ok action_str -> (
-        match String.split action_str ~on:' ' with
-        | [ "A" ] -> return `Allow
-        | [ "B" ] -> return `Block
-        | _ -> failwith "Invalid action")
+  let choose_assasination_response _t () =
+    with_stdin ~f:(fun stdin ->
+        print_endline "Assassinate? (A/B)";
+        match%bind Reader.read_line stdin with
+        | `Eof -> failwith "EOF"
+        | `Ok action_str -> (
+            match String.split action_str ~on:' ' with
+            | [ "A" ] -> return `Allow
+            | [ "B" ] -> return `Block
+            | _ -> failwith "Invalid action"))
 
-  let reveal_card () () = return `Card_1
+  let reveal_card _t () = return `Card_1
+  (* TODO: implement *)
+
+  let offer_challenge _t acting_player_id action =
+    (* TODO: implement *)
+    with_stdin ~f:(fun stdin ->
+        print_s
+          [%message
+            "Offer challenge? (N/C <player_id>)"
+              (acting_player_id : Player_id.t)
+              (action
+                : [< `Assassinate
+                  | `Block_assassination
+                  | `Block_foreign_aid
+                  | `Exchange
+                  | `Steal
+                  | `Tax ])];
+        match%bind Reader.read_line stdin with
+        | `Eof -> failwith "EOF"
+        | `Ok action_str -> (
+            match String.split action_str ~on:' ' with
+            | [ "N" ] -> return `No_challenge
+            | [ "C" ] -> return `Challenge
+            | _ -> failwith "Invalid action"))
 end
 
 module Player = struct
@@ -147,6 +183,7 @@ module Game_state = struct
   [@@deriving sexp_of]
 
   let deck t = t.deck
+  let players t = t.players
 
   let modify_player t id ~f =
     let new_players =
@@ -212,7 +249,7 @@ module Game_state = struct
     {
       Player.id;
       coins = 2;
-      player_io = Player_io.cli_player;
+      player_io = Player_io.cli_player ();
       hand = Hand.Both (card_1, card_2);
     }
 
@@ -322,28 +359,18 @@ let required_card_for_action = function
 
 (* module Challenge_result = struct *)
 let handle_challenge game_state acting_player_id action =
-  let offer_challenge _acting_player_id =
-    (* TODO: implement *)
-    print_s
-      [%message
-        "Offer challenge? (N/C <player_id>)"
-          (acting_player_id : Player_id.t)
-          (action
-            : [< `Assassinate
-              | `Block_assassination
-              | `Block_foreign_aid
-              | `Exchange
-              | `Steal
-              | `Tax ])];
-    match%bind Reader.read_line (Lazy.force Reader.stdin) with
-    | `Eof -> failwith "EOF"
-    | `Ok action_str -> (
-        match String.split action_str ~on:' ' with
-        | [ "N" ] -> return `No_challenge
-        | [ "C"; n ] -> return (`Challenge (Player_id.of_int (Int.of_string n)))
-        | _ -> failwith "Invalid action")
+  let%bind challenge_result =
+    Game_state.players game_state
+    |> List.filter ~f:(fun player ->
+           not (Player_id.equal player.id acting_player_id))
+    |> List.map ~f:(fun player ->
+           Player_io.offer_challenge player.player_io acting_player_id action
+           >>| function
+           | `No_challenge -> `No_challenge
+           | `Challenge -> `Challenge player.id)
+    |> Deferred.any
   in
-  match%bind offer_challenge acting_player_id with
+  match challenge_result with
   | `No_challenge -> Deferred.Result.return (`No_challenge game_state)
   | `Challenge challenger_player_id -> (
       let card_to_replace = required_card_for_action action in
