@@ -363,6 +363,10 @@ let handle_challenge game_state acting_player_id action =
           `Failed_challenge new_game_state)
 
 let assassinate game_state active_player_id target_player_id =
+  let game_state =
+    Game_state.modify_active_player game_state ~f:(fun player ->
+        { player with coins = player.coins - 3 })
+  in
   match%bind.Deferred.Result
     handle_challenge game_state active_player_id `Assassinate
   with
@@ -420,7 +424,6 @@ let take_foreign_aid game_state =
 
 let take_turn_result game_state =
   let active_player = Game_state.get_active_player game_state in
-
   let%bind.Deferred.Result action =
     Deferred.repeat_until_finished () (fun () ->
         let%map action =
