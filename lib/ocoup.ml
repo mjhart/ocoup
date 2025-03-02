@@ -16,13 +16,13 @@ module Card = struct
 end
 
 module Player_id : sig
-  type t [@@deriving sexp, equal]
+  type t [@@deriving sexp, equal, compare]
 
   val of_int : int -> t
   val to_int : t -> int
   val to_string : t -> string
 end = struct
-  type t = int [@@deriving sexp, equal]
+  type t = int [@@deriving sexp, equal, compare]
 
   let of_int = Fn.id
   let to_int = Fn.id
@@ -140,13 +140,23 @@ end = struct
 
     { player_id; writer }
 
+  let color_code t =
+    let i = 34 + (Player_id.to_int t.player_id mod 6) in
+    sprintf "\027[%dm" i
+
   let print_endline t message =
     Writer.write_line t.writer message;
-    print_endline message
+    print_string (color_code t);
+    print_endline message;
+    print_string "\027[0m";
+    ()
 
   let print_s t message =
     Writer.write_sexp t.writer message;
-    print_s message
+    Async_unix.print_string (color_code t);
+    print_s message;
+    Async_unix.print_string "\027[0m";
+    ()
 
   let with_stdin t ~f =
     Throttle.enqueue (Lazy.force stdin_throttle) (fun () ->
@@ -264,6 +274,24 @@ module Game_state = struct
 
   let get_active_player t = List.hd_exn t.players
   let _get_active_player_id t = get_active_player t |> Player.id
+
+  let to_string_pretty t =
+    let sorted_players =
+      List.sort t.players ~compare:(fun a b -> Player_id.compare a.id b.id)
+    in
+    List.map sorted_players ~f:(fun player ->
+        let hand_sexp = [%sexp_of: Hand.t] player.hand in
+        let body =
+          [%string
+            "Player id: %{player.id#Player_id}\tCoins: \
+             %{player.coins#Int}\tHand: %{hand_sexp#Sexp}"]
+        in
+        let prefix =
+          if Player_id.equal player.id (get_active_player t).id then "->"
+          else "  "
+        in
+        prefix ^ body)
+    |> String.concat_lines
 
   let modify_active_player t ~f =
     let active_player = get_active_player t in
@@ -588,7 +616,8 @@ let take_turn_result game_state =
 
 let take_turn game_state =
   print_newline ();
-  print_s [%sexp (game_state : Game_state.t)];
+  (* print_s [%sexp (game_state : Game_state.t)]; *)
+  print_endline (Game_state.to_string_pretty game_state);
   match%bind take_turn_result game_state with
   | Ok game_state' -> return (`Repeat (Game_state.end_turn game_state'))
   | Error final_game_state -> return (`Finished final_game_state)
