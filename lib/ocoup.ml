@@ -103,6 +103,7 @@ module Player_io : sig
     | `Exchange
     | `Steal
     | `Tax ] ->
+    cancelled_reason:Cancelled_reason.t Deferred.t ->
     [ `No_challenge | `Challenge ] Deferred.t
 
   val cli_player : Player_id.t -> t
@@ -148,45 +149,45 @@ end = struct
             | _ -> failwith "Invalid action"))
 
   let choose_foreign_aid_response t () ~cancelled_reason =
-    Deferred.choose
-      [
-        choice cancelled_reason (fun _ -> `Allow);
-        choice
-          (with_stdin t ~f:(fun stdin ->
-               print_endline "Block foreign aid? (Y/N)";
-               match%map Reader.read_line stdin with
-               | `Eof -> failwith "EOF"
-               | `Ok action_str -> (
-                   match String.split action_str ~on:' ' with
-                   | [ "Y" ] -> `Block
-                   | [ "N" ] -> `Allow
-                   | _ -> failwith "Invalid action")))
-          Fn.id;
-      ]
+    with_stdin t ~f:(fun stdin ->
+        match Deferred.is_determined cancelled_reason with
+        | true -> return `Allow
+        | false -> (
+            print_endline "Block foreign aid? (Y/N)";
+            match%map Reader.read_line stdin with
+            | `Eof -> failwith "EOF"
+            | `Ok action_str -> (
+                match String.split action_str ~on:' ' with
+                | [ "Y" ] -> `Block
+                | [ "N" ] -> `Allow
+                | _ -> failwith "Invalid action")))
 
   let reveal_card _t () = return `Card_1
   (* TODO: implement *)
 
-  let offer_challenge t acting_player_id action =
+  let offer_challenge t acting_player_id action ~cancelled_reason =
     with_stdin t ~f:(fun stdin ->
-        print_s
-          [%message
-            "Challenge action? (Y/N)"
-              (action
-                : [< `Assassinate
-                  | `Block_assassination
-                  | `Block_foreign_aid
-                  | `Exchange
-                  | `Steal
-                  | `Tax ])
-              (acting_player_id : Player_id.t)];
-        match%map Reader.read_line stdin with
-        | `Eof -> failwith "EOF"
-        | `Ok action_str -> (
-            match String.split action_str ~on:' ' with
-            | [ "N" ] -> `No_challenge
-            | [ "Y" ] -> `Challenge
-            | _ -> failwith "Invalid action"))
+        match Deferred.is_determined cancelled_reason with
+        | true -> return `No_challenge
+        | false -> (
+            print_s
+              [%message
+                "Challenge action? (Y/N)"
+                  (action
+                    : [< `Assassinate
+                      | `Block_assassination
+                      | `Block_foreign_aid
+                      | `Exchange
+                      | `Steal
+                      | `Tax ])
+                  (acting_player_id : Player_id.t)];
+            match%map Reader.read_line stdin with
+            | `Eof -> failwith "EOF"
+            | `Ok action_str -> (
+                match String.split action_str ~on:' ' with
+                | [ "N" ] -> `No_challenge
+                | [ "Y" ] -> `Challenge
+                | _ -> failwith "Invalid action")))
 end
 
 module Player = struct
@@ -425,8 +426,9 @@ let handle_response_race game_state acting_player_id ~f =
 let handle_challenge game_state acting_player_id action =
   let%bind challenge_result =
     handle_response_race game_state acting_player_id
-      ~f:(fun player _cancelled_reason ->
+      ~f:(fun player cancelled_reason ->
         Player_io.offer_challenge player.player_io acting_player_id action
+          ~cancelled_reason
         >>| function
         | `No_challenge -> `Allow
         | `Challenge -> `Block)
