@@ -79,7 +79,7 @@ end
 module Player_io : sig
   type t
 
-  val choose_action : t -> Player_id.t -> Action.t Deferred.t
+  val choose_action : t -> Action.t Deferred.t
   val choose_assasination_response : t -> unit -> [ `Allow | `Block ] Deferred.t
   val choose_foreign_aid_response : t -> unit -> [ `Allow | `Block ] Deferred.t
   val reveal_card : t -> unit -> [ `Card_1 | `Card_2 ] Deferred.t
@@ -112,7 +112,7 @@ end = struct
         f (Lazy.force Reader.stdin))
 
   (* TODO: implement *)
-  let choose_action t _active_player_id =
+  let choose_action t =
     (* TODO: implement for real. Make sure they have enough coins *)
     with_stdin t ~f:(fun stdin ->
         print_endline "Choose action (I/FA/C/T/S/E)";
@@ -495,9 +495,7 @@ let take_turn_result game_state =
   let active_player = Game_state.get_active_player game_state in
   let%bind.Deferred.Result action =
     Deferred.repeat_until_finished () (fun () ->
-        let%map action =
-          Player_io.choose_action active_player.player_io active_player.id
-        in
+        let%map action = Player_io.choose_action active_player.player_io in
         match Game_state.is_valid_action game_state active_player.id action with
         | true -> `Finished action
         | false ->
