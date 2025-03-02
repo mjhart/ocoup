@@ -6,6 +6,7 @@ open! Async
    - timeout for player action
    - implement players
    - tell players about stuff
+   - better game state printing
  *)
 
 (* The characters (and cards) available in the game *)
@@ -19,11 +20,13 @@ module Player_id : sig
 
   val of_int : int -> t
   val to_int : t -> int
+  val to_string : t -> string
 end = struct
   type t = int [@@deriving sexp, equal]
 
   let of_int = Fn.id
   let to_int = Fn.id
+  let to_string = Int.to_string
 end
 
 (* Actions a player may choose. Some actions have a target (represented by a player id). *)
@@ -105,17 +108,15 @@ module Player_io : sig
     cancelled_reason:Cancelled_reason.t Deferred.t ->
     [ `No_challenge | `Challenge ] Deferred.t
 
-  val cli_player : Player_id.t -> t
+  val cli_player : Player_id.t -> t Deferred.t
   val notify_of_action_choice : t -> Player_id.t -> Action.t -> unit Deferred.t
   val notify_of_lost_influence : t -> Player_id.t -> Card.t -> unit Deferred.t
+  val notify_of_new_card : t -> Card.t -> unit Deferred.t
   (* 
           what to players have to learn about:
           - their initial cards
-          - getting cards
-          - player choices
-            - challenges
-            - blocking
-          - losing influence
+          - non-challengable or blockable actions
+            - coup
           - game end
           *)
 end = struct
@@ -129,13 +130,27 @@ end = struct
     Lazy.from_fun (fun () ->
         Throttle.Sequencer.create ~continue_on_error:false ())
 
-  type t = { player_id : Player_id.t }
+  type t = { player_id : Player_id.t; writer : Writer.t }
 
-  let cli_player player_id = { player_id }
+  let cli_player player_id =
+    (* open a file for writing *)
+    let%map writer =
+      Writer.open_file [%string "player_%{player_id#Player_id}.txt"]
+    in
+
+    { player_id; writer }
+
+  let print_endline t message =
+    Writer.write_line t.writer message;
+    print_endline message
+
+  let print_s t message =
+    Writer.write_sexp t.writer message;
+    print_s message
 
   let with_stdin t ~f =
     Throttle.enqueue (Lazy.force stdin_throttle) (fun () ->
-        print_endline
+        print_endline t
           (sprintf "You are player %d" (Player_id.to_int t.player_id));
         f (Lazy.force Reader.stdin))
 
@@ -143,7 +158,7 @@ end = struct
   let choose_action t =
     (* TODO: implement for real. Make sure they have enough coins *)
     with_stdin t ~f:(fun stdin ->
-        print_endline "Choose action (I/FA/C/T/S/E)";
+        print_endline t "Choose action (I/FA/C/T/S/E)";
         match%bind Reader.read_line stdin with
         | `Eof -> failwith "EOF"
         | `Ok action_str -> (
@@ -156,7 +171,7 @@ end = struct
 
   let choose_assasination_response t () =
     with_stdin t ~f:(fun stdin ->
-        print_endline "Block assassination? (Y/N)";
+        print_endline t "Block assassination? (Y/N)";
         match%map Reader.read_line stdin with
         | `Eof -> failwith "EOF"
         | `Ok action_str -> (
@@ -170,7 +185,7 @@ end = struct
         match Deferred.is_determined cancelled_reason with
         | true -> return `Allow
         | false -> (
-            print_endline "Block foreign aid? (Y/N)";
+            print_endline t "Block foreign aid? (Y/N)";
             match%map Reader.read_line stdin with
             | `Eof -> failwith "EOF"
             | `Ok action_str -> (
@@ -187,7 +202,7 @@ end = struct
         match Deferred.is_determined cancelled_reason with
         | true -> return `No_challenge
         | false -> (
-            print_s
+            print_s t
               [%message
                 "Challenge action? (Y/N)"
                   (action
@@ -206,11 +221,14 @@ end = struct
                 | [ "Y" ] -> `Challenge
                 | _ -> failwith "Invalid action")))
 
-  let notify_of_action_choice _t player_id action =
-    print_s
+  let notify_of_action_choice t player_id action =
+    print_s t
       [%message
         "Player chose action" (player_id : Player_id.t) (action : Action.t)]
     |> return
+
+  let notify_of_new_card t card =
+    print_s t [%message "Got new card" (card : Card.t)] |> return
 end
 
 module Player = struct
@@ -298,12 +316,8 @@ module Game_state = struct
            [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
 
   let create_player id card_1 card_2 =
-    {
-      Player.id;
-      coins = 2;
-      player_io = Player_io.cli_player id;
-      hand = Hand.Both (card_1, card_2);
-    }
+    let%map player_io = Player_io.cli_player id in
+    { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
 
   let num_players = 3
 
@@ -320,8 +334,9 @@ module Game_state = struct
           | Some prev -> ((card, prev) :: pairs_acc, None))
     in
     let player_cards, remaining_cards = List.split_n paired_deck num_players in
-    let players =
-      List.mapi player_cards ~f:(fun id (card_1, card_2) ->
+    let%map players =
+      Deferred.List.mapi ~how:`Sequential player_cards
+        ~f:(fun id (card_1, card_2) ->
           create_player (Player_id.of_int id) card_1 card_2)
     in
     let deck =
@@ -342,7 +357,7 @@ let _take_foreign_aid game_state =
   Game_state.modify_active_player game_state ~f:(fun active_player ->
       { active_player with coins = active_player.coins + 2 })
 
-let init () = Game_state.init ()
+(* let init () = Game_state.init () *)
 let game_over = Deferred.Result.fail
 
 let lose_influence game_state target_player_id =
@@ -387,8 +402,6 @@ let lose_influence game_state target_player_id =
   new_game_state
 
 let randomly_get_new_card game_state active_player_id card_to_replace =
-  (* TODO make sure to emit an event with new card info *)
-  (* let new_card = List.random_element_exn game_state.deck in *)
   let deck_with_replacement = card_to_replace :: Game_state.deck game_state in
   let shuffled_deck = List.permute deck_with_replacement in
   let replacement_card = List.hd_exn shuffled_deck in
@@ -405,6 +418,11 @@ let randomly_get_new_card game_state active_player_id card_to_replace =
               Hand.One { hidden = replacement_card; revealed }
         in
         { player with hand = new_hand })
+  in
+  let%map () =
+    Player_io.notify_of_new_card
+      (Game_state.get_player new_game_state active_player_id).player_io
+      replacement_card
   in
   { new_game_state with deck = remaining_deck }
 
@@ -474,8 +492,9 @@ let handle_challenge game_state acting_player_id action =
           in
           `Successfully_challenged new_game_state
       | true ->
-          let game_state_after_new_card =
+          let%bind.Deferred.Result game_state_after_new_card =
             randomly_get_new_card game_state acting_player_id card_to_replace
+            >>| Result.return
           in
           let%map.Deferred.Result new_game_state =
             lose_influence game_state_after_new_card challenger_player_id
@@ -575,7 +594,8 @@ let take_turn game_state =
   | Error final_game_state -> return (`Finished final_game_state)
 
 let run_game () =
+  let%bind game_state = Game_state.init () in
   let%map final_game_state =
-    Deferred.repeat_until_finished (Game_state.init ()) take_turn
+    Deferred.repeat_until_finished game_state take_turn
   in
   print_s [%sexp (final_game_state : Game_state.t)]
