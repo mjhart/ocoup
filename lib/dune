@@ -1,5 +1,5 @@
 (library
  (name ocoup)
- (libraries async core)
+ (libraries async async_ssl core cohttp-async yojson)
  (preprocess
-  (pps ppx_jane)))
+  (pps ppx_jane ppx_yojson_conv)))

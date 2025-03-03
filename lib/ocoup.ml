@@ -69,6 +69,18 @@ module Action = struct
       ]
     in
     List.filter all_actions ~f:(fun action -> coins >= cost action)
+
+  let to_string = function
+    | Income -> "Income"
+    | ForeignAid -> "ForeignAid"
+    | Coup target_player_id ->
+        sprintf "Coup %d" (Player_id.to_int target_player_id)
+    | Tax -> "Tax"
+    | Assassinate target_player_id ->
+        sprintf "Assassinate %d" (Player_id.to_int target_player_id)
+    | Steal target_player_id ->
+        sprintf "Steal %d" (Player_id.to_int target_player_id)
+    | Exchange -> "Exchange"
 end
 
 module Hand = struct
@@ -82,7 +94,7 @@ module Cancelled_reason = struct
   type t = Other_player_responded of Player_id.t [@@deriving sexp]
 end
 
-module Player_io : sig
+module type Player_io_S = sig
   type t
 
   val choose_action : t -> Action.t Deferred.t
@@ -109,7 +121,6 @@ module Player_io : sig
     cancelled_reason:Cancelled_reason.t Deferred.t ->
     [ `No_challenge | `Challenge ] Deferred.t
 
-  val cli_player : Player_id.t -> t Deferred.t
   val notify_of_action_choice : t -> Player_id.t -> Action.t -> unit Deferred.t
   val notify_of_lost_influence : t -> Player_id.t -> Card.t -> unit Deferred.t
   val notify_of_new_card : t -> Card.t -> unit Deferred.t
@@ -122,6 +133,12 @@ module Player_io : sig
             - coup
           - game end
           *)
+end
+
+module Cli_player_io : sig
+  include Player_io_S
+
+  val cli_player : Player_id.t -> t Deferred.t
 end = struct
   let stdin_throttle =
     Lazy.from_fun (fun () ->
@@ -268,6 +285,196 @@ end = struct
     |> return
 end
 
+module Llm_player_io : sig
+  include Player_io_S
+
+  (* TODO: needs other player info *)
+  val create : Player_id.t -> card_1:Card.t -> card_2:Card.t -> t
+end = struct
+  type t = {
+    player_id : Player_id.t;
+    hand : Hand.t;
+    mutable events : string list;
+  }
+
+  let create player_id ~card_1 ~card_2 =
+    { player_id; hand = Hand.Both (card_1, card_2); events = [] }
+
+  let headers =
+    Http.Header.of_list
+      [ ("Content-Type", "application/json"); ("Authorization", "Bearer TODO") ]
+
+  let choose_action t =
+    let open Cohttp_async in
+    let state = [%sexp (t.hand : Hand.t)] in
+    let post_body =
+      let json =
+        `Assoc
+          [
+            ("model", `String "gpt-4o-mini");
+            ( "messages",
+              `List
+                [
+                  `Assoc
+                    [
+                      ("role", `String "developer");
+                      ("content", `String "%{Rules.rules}");
+                    ];
+                  `Assoc
+                    [
+                      ("role", `String "developer");
+                      ( "content",
+                        `String
+                          [%string
+                            "The game is starting. You are player \
+                             %{t.player_id#Player_id}. Your cards are \
+                             %{state#Sexp}. You have 2 coins. Players 1 and 2 \
+                             are your opponents. "] );
+                    ];
+                  `Assoc
+                    [
+                      ("role", `String "developer");
+                      ( "content",
+                        `String
+                          "Other players: 1, 2. Hand: Duke, Contessa. Coins: \
+                           7. Choose action: Income | ForeignAid | Assasinate \
+                           player_id | Coup target_player_id | Tax | Steal \
+                           target_player_id | Exchange. Respond with a json \
+                           object with the key 'action' and the value being \
+                           the action you want to take. If the action requires \
+                           a target player, additionally provide the key \
+                           'target_player_id' and the value will be the the \
+                           player_id of the target player." );
+                    ];
+                ] );
+            ("response_format", `Assoc [ ("type", `String "json_object") ]);
+          ]
+      in
+      Body.of_string (Yojson.Basic.to_string json)
+    in
+    let%bind response, body =
+      Client.post ~headers
+        (Uri.of_string "https://api.openai.com/v1/chat/completions")
+        ~body:post_body
+    in
+    let%map body = Body.to_string body in
+    let code =
+      response |> Cohttp.Response.status |> Cohttp.Code.code_of_status
+    in
+    print_s [%sexp (code : int)];
+    print_endline body;
+    let json = Yojson.Basic.from_string body in
+    let content =
+      Yojson.Basic.Util.member "choices" json
+      |> Yojson.Basic.Util.to_list |> List.hd_exn
+      |> Yojson.Basic.Util.member "message"
+      |> Yojson.Basic.Util.member "content"
+      |> function
+      | `String content -> Yojson.Basic.from_string content
+      | _ -> failwith "Invalid content"
+    in
+    let action = Yojson.Basic.Util.member "action" content in
+
+    let target_player_id = Yojson.Basic.Util.member "target_player_id" json in
+    match (action, target_player_id) with
+    | `String "Income", `Null -> Action.Income
+    | `String "ForeignAid", `Null -> Action.ForeignAid
+    | `String "Assassinate", `Int target_player_id ->
+        Action.Assassinate (Player_id.of_int target_player_id)
+    | `String "Coup", `Int target_player_id ->
+        Action.Coup (Player_id.of_int target_player_id)
+    | `String "Tax", `Null -> Action.Tax
+    | `String "Steal", `Int target_player_id ->
+        Action.Steal (Player_id.of_int target_player_id)
+    | `String "Exchange", `Null -> Action.Exchange
+    | _ -> failwith "Invalid action"
+
+  let choose_assasination_response _t () = return `Allow
+  let choose_foreign_aid_response _t () ~cancelled_reason:_ = return `Allow
+  let choose_steal_response _t () = return `Allow
+  let choose_cards_to_return _t _card_1 _card_2 _hand = failwith "TODO"
+  let reveal_card _t () = return `Card_1
+
+  let offer_challenge _t _acting_player_id _action ~cancelled_reason:_ =
+    return `No_challenge
+
+  let notify_of_action_choice t player_id action =
+    t.events <-
+      t.events
+      @ [
+          [%string
+            "Player %{player_id#Player_id} chose action %{action#Action}"];
+        ];
+    return ()
+
+  let notify_of_lost_influence _t _player_id _card = failwith "TODO"
+  let notify_of_new_card _t _card = failwith "TODO"
+end
+
+module Player_io : sig
+  type t = Cli of Cli_player_io.t | Llm of Llm_player_io.t
+
+  include Player_io_S with type t := t
+end = struct
+  type t = Cli of Cli_player_io.t | Llm of Llm_player_io.t
+
+  let choose_action t =
+    match t with
+    | Cli cli -> Cli_player_io.choose_action cli
+    | Llm llm -> Llm_player_io.choose_action llm
+
+  let choose_assasination_response t () =
+    match t with
+    | Cli cli -> Cli_player_io.choose_assasination_response cli ()
+    | Llm llm -> Llm_player_io.choose_assasination_response llm ()
+
+  let choose_foreign_aid_response t () ~cancelled_reason =
+    match t with
+    | Cli cli ->
+        Cli_player_io.choose_foreign_aid_response cli () ~cancelled_reason
+    | Llm llm ->
+        Llm_player_io.choose_foreign_aid_response llm () ~cancelled_reason
+
+  let choose_steal_response t () =
+    match t with
+    | Cli cli -> Cli_player_io.choose_steal_response cli ()
+    | Llm llm -> Llm_player_io.choose_steal_response llm ()
+
+  let choose_cards_to_return t card_1 card_2 _hand =
+    match t with
+    | Cli cli -> Cli_player_io.choose_cards_to_return cli card_1 card_2 _hand
+    | Llm llm -> Llm_player_io.choose_cards_to_return llm card_1 card_2 _hand
+
+  let reveal_card t () =
+    match t with
+    | Cli cli -> Cli_player_io.reveal_card cli ()
+    | Llm llm -> Llm_player_io.reveal_card llm ()
+
+  let offer_challenge t _acting_player_id _action ~cancelled_reason =
+    match t with
+    | Cli cli ->
+        Cli_player_io.offer_challenge cli _acting_player_id _action
+          ~cancelled_reason
+    | Llm llm ->
+        Llm_player_io.offer_challenge llm _acting_player_id _action
+          ~cancelled_reason
+
+  let notify_of_action_choice t player_id action =
+    match t with
+    | Cli cli -> Cli_player_io.notify_of_action_choice cli player_id action
+    | Llm llm -> Llm_player_io.notify_of_action_choice llm player_id action
+
+  let notify_of_lost_influence t player_id card =
+    match t with
+    | Cli cli -> Cli_player_io.notify_of_lost_influence cli player_id card
+    | Llm llm -> Llm_player_io.notify_of_lost_influence llm player_id card
+
+  let notify_of_new_card t card =
+    match t with
+    | Cli cli -> Cli_player_io.notify_of_new_card cli card
+    | Llm llm -> Llm_player_io.notify_of_new_card llm card
+end
+
 module Player = struct
   type t = {
     id : Player_id.t;
@@ -371,8 +578,15 @@ module Game_state = struct
            [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
 
   let create_player id card_1 card_2 =
-    let%map player_io = Player_io.cli_player id in
-    { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
+    if Player_id.to_int id = 2 then
+      let llm_player_io = Llm_player_io.create id ~card_1 ~card_2 in
+      let player_io = Player_io.Llm llm_player_io in
+      return
+        { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
+    else
+      let%map cli_player_io = Cli_player_io.cli_player id in
+      let player_io = Player_io.Cli cli_player_io in
+      { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
 
   let num_players = 3
 
@@ -781,3 +995,53 @@ let run_game () =
     Deferred.repeat_until_finished game_state take_turn
   in
   print_s [%sexp (final_game_state : Game_state.t)]
+
+let make_http_request () =
+  let open Cohttp_async in
+  let headers =
+    Http.Header.of_list
+      [ ("Content-Type", "application/json"); ("Authorization", "Bearer BLAH") ]
+  in
+  let post_body =
+    let json =
+      `Assoc
+        [
+          ("model", `String "gpt-4o-mini");
+          ( "messages",
+            `List
+              [
+                `Assoc
+                  [
+                    ("role", `String "developer");
+                    ("content", `String "%{Rules.rules}");
+                  ];
+                `Assoc
+                  [
+                    ("role", `String "developer");
+                    ( "content",
+                      `String
+                        "Other players: 1, 2.Hand: Duke, Contessa. Coins: 7. \
+                         Choose action: Income | ForeignAid | Assasinate \
+                         player_id | Coup target_player_id | Tax | Steal \
+                         target_player_id | Exchange. Respond with a json \
+                         object with the key 'action' and the value being the \
+                         action you want to take. If the action requires a \
+                         target player, additionally provide the key \
+                         'target_player_id' and the value will be the the \
+                         player_id of the target player." );
+                  ];
+              ] );
+          ("response_format", `Assoc [ ("type", `String "json_object") ]);
+        ]
+    in
+    Body.of_string (Yojson.Basic.to_string json)
+  in
+  let%bind response, body =
+    Client.post ~headers
+      (Uri.of_string "https://api.openai.com/v1/chat/completions")
+      ~body:post_body
+  in
+  let%map body = Body.to_string body in
+  let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in
+  print_s [%sexp (code : int)];
+  print_endline body
