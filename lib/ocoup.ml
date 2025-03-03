@@ -98,7 +98,7 @@ module Player_io : sig
     t -> unit -> [ `Allow | `Block of [ `Captain | `Ambassador ] ] Deferred.t
 
   val choose_cards_to_return :
-    t -> Card.t -> Card.t -> (Card.t * Card.t) Deferred.t
+    t -> Card.t -> Card.t -> Hand.t -> (Card.t * Card.t) Deferred.t
 
   val reveal_card : t -> unit -> [ `Card_1 | `Card_2 ] Deferred.t
 
@@ -219,7 +219,7 @@ end = struct
                 | [ "N" ] -> `Allow
                 | _ -> failwith "Invalid action")))
 
-  let choose_cards_to_return t card_1 card_2 =
+  let choose_cards_to_return t card_1 card_2 _hand =
     (* TODO: implement *)
     with_stdin t ~f:(fun stdin ->
         print_endline t "Choose cards to return (1/2)";
@@ -677,7 +677,7 @@ let exchange game_state =
   | card_choice_1 :: card_choice_2 :: rest ->
       let%map.Deferred returned_card_1, returned_card_2 =
         Player_io.choose_cards_to_return active_player.player_io card_choice_1
-          card_choice_2
+          card_choice_2 active_player.hand
       in
       let remove_cards cards_chosen_from =
         List.fold cards_chosen_from
