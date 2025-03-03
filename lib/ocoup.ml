@@ -94,17 +94,18 @@ module Player_io : sig
     cancelled_reason:Cancelled_reason.t Deferred.t ->
     [ `Allow | `Block ] Deferred.t
 
+  val choose_steal_response :
+    t -> unit -> [ `Allow | `Block of [ `Captain | `Ambassador ] ] Deferred.t
+
+  val choose_cards_to_return :
+    t -> Card.t -> Card.t -> (Card.t * Card.t) Deferred.t
+
   val reveal_card : t -> unit -> [ `Card_1 | `Card_2 ] Deferred.t
 
   val offer_challenge :
     t ->
     Player_id.t ->
-    [ `Assassinate
-    | `Block_assassination
-    | `Block_foreign_aid
-    | `Exchange
-    | `Steal
-    | `Tax ] ->
+    Card.t ->
     cancelled_reason:Cancelled_reason.t Deferred.t ->
     [ `No_challenge | `Challenge ] Deferred.t
 
@@ -115,17 +116,13 @@ module Player_io : sig
   (* 
           what to players have to learn about:
           - their initial cards
+          - resolutions
+            - steal
           - non-challengable or blockable actions
             - coup
           - game end
           *)
 end = struct
-  let notify_of_lost_influence _t player_id card =
-    print_s
-      [%message
-        "Player lost influence" (player_id : Player_id.t) (card : Card.t)]
-    |> return
-
   let stdin_throttle =
     Lazy.from_fun (fun () ->
         Throttle.Sequencer.create ~continue_on_error:false ())
@@ -177,6 +174,12 @@ end = struct
             | [ "FA" ] -> return Action.ForeignAid
             | [ "A"; n ] ->
                 return (Action.Assassinate (Player_id.of_int (Int.of_string n)))
+            | [ "C"; n ] ->
+                return (Action.Coup (Player_id.of_int (Int.of_string n)))
+            | [ "T" ] -> return Action.Tax
+            | [ "S"; n ] ->
+                return (Action.Steal (Player_id.of_int (Int.of_string n)))
+            | [ "E" ] -> return Action.Exchange
             | _ -> failwith "Invalid action"))
 
   let choose_assasination_response t () =
@@ -188,6 +191,18 @@ end = struct
             match String.split action_str ~on:' ' with
             | [ "N" ] -> `Allow
             | [ "Y" ] -> `Block
+            | _ -> failwith "Invalid action"))
+
+  let choose_steal_response t () =
+    with_stdin t ~f:(fun stdin ->
+        print_endline t "Block steal? (C/A/N)";
+        match%map Reader.read_line stdin with
+        | `Eof -> failwith "EOF"
+        | `Ok action_str -> (
+            match String.split action_str ~on:' ' with
+            | [ "C" ] -> `Block `Captain
+            | [ "A" ] -> `Block `Ambassador
+            | [ "N" ] -> `Allow
             | _ -> failwith "Invalid action"))
 
   let choose_foreign_aid_response t () ~cancelled_reason =
@@ -204,6 +219,18 @@ end = struct
                 | [ "N" ] -> `Allow
                 | _ -> failwith "Invalid action")))
 
+  let choose_cards_to_return t card_1 card_2 =
+    (* TODO: implement *)
+    with_stdin t ~f:(fun stdin ->
+        print_endline t "Choose cards to return (1/2)";
+        match%map Reader.read_line stdin with
+        | `Eof -> failwith "EOF"
+        | `Ok action_str -> (
+            match String.split action_str ~on:' ' with
+            | [ "1" ] -> (card_1, card_2)
+            | [ "2" ] -> (card_2, card_1)
+            | _ -> failwith "Invalid action"))
+
   let reveal_card _t () = return `Card_1
   (* TODO: implement *)
 
@@ -215,13 +242,7 @@ end = struct
             print_s t
               [%message
                 "Challenge action? (Y/N)"
-                  (action
-                    : [< `Assassinate
-                      | `Block_assassination
-                      | `Block_foreign_aid
-                      | `Exchange
-                      | `Steal
-                      | `Tax ])
+                  (action : Card.t)
                   (acting_player_id : Player_id.t)];
             match%map Reader.read_line stdin with
             | `Eof -> failwith "EOF"
@@ -239,6 +260,12 @@ end = struct
 
   let notify_of_new_card t card =
     print_s t [%message "Got new card" (card : Card.t)] |> return
+
+  let notify_of_lost_influence t player_id card =
+    print_s t
+      [%message
+        "Player lost influence" (player_id : Player_id.t) (card : Card.t)]
+    |> return
 end
 
 module Player = struct
@@ -454,7 +481,7 @@ let randomly_get_new_card game_state active_player_id card_to_replace =
   in
   { new_game_state with deck = remaining_deck }
 
-let required_card_for_action = function
+let _required_card_for_action = function
   | `Assassinate -> Card.Assassin
   | `Steal -> Captain
   | `Exchange -> Ambassador
@@ -499,7 +526,7 @@ let handle_response_race game_state acting_player_id ~f =
   in
   Deferred.any [ blocked; allowed ]
 
-let handle_challenge game_state acting_player_id action =
+let handle_challenge game_state acting_player_id (action : Card.t) =
   let%bind challenge_result =
     handle_response_race game_state acting_player_id
       ~f:(fun player cancelled_reason ->
@@ -512,7 +539,7 @@ let handle_challenge game_state acting_player_id action =
   match challenge_result with
   | `Allow -> Deferred.Result.return (`No_challenge game_state)
   | `Blocked_by challenger_player_id -> (
-      let card_to_replace = required_card_for_action action in
+      let card_to_replace = action in
       match Game_state.has_card game_state acting_player_id card_to_replace with
       | false ->
           let%map.Deferred.Result new_game_state =
@@ -535,7 +562,7 @@ let assassinate game_state active_player_id target_player_id =
         { player with coins = player.coins - 3 })
   in
   match%bind.Deferred.Result
-    handle_challenge game_state active_player_id `Assassinate
+    handle_challenge game_state active_player_id Assassin
   with
   | `Successfully_challenged post_challenge_game_state ->
       Deferred.Result.return post_challenge_game_state
@@ -551,8 +578,7 @@ let assassinate game_state active_player_id target_player_id =
       | `Allow -> lose_influence post_challenge_game_state target_player_id
       | `Block -> (
           match%bind.Deferred.Result
-            handle_challenge post_challenge_game_state target_player_id
-              `Block_assassination
+            handle_challenge post_challenge_game_state target_player_id Contessa
           with
           | `Successfully_challenged post_second_challenge_game_state ->
               lose_influence post_second_challenge_game_state target_player_id
@@ -576,7 +602,7 @@ let take_foreign_aid game_state =
   with
   | `Blocked_by blocking_player_id -> (
       match%bind.Deferred.Result
-        handle_challenge game_state blocking_player_id `Block_foreign_aid
+        handle_challenge game_state blocking_player_id Duke
       with
       | `Successfully_challenged post_second_challenge_game_state ->
           Deferred.Result.return
@@ -585,6 +611,122 @@ let take_foreign_aid game_state =
       | `Failed_challenge post_second_challenge_game_state ->
           Deferred.Result.return post_second_challenge_game_state)
   | `Allow -> Deferred.Result.return (take_two_coins game_state)
+
+let coup game_state target_player_id =
+  let game_state =
+    Game_state.modify_active_player game_state ~f:(fun player ->
+        { player with coins = player.coins - 7 })
+  in
+  lose_influence game_state target_player_id
+
+let take_tax game_state =
+  match%map.Deferred.Result
+    handle_challenge game_state (Game_state.get_active_player game_state).id
+      Duke
+  with
+  | `Successfully_challenged post_challenge_game_state ->
+      post_challenge_game_state
+  | `No_challenge post_challenge_game_state
+  | `Failed_challenge post_challenge_game_state ->
+      Game_state.modify_active_player post_challenge_game_state
+        ~f:(fun player -> { player with coins = player.coins + 3 })
+
+let steal game_state target_player_id =
+  let steal_two_coins game_state =
+    let target_player = Game_state.get_player game_state target_player_id in
+    let num_coins_to_steal = Int.min 2 target_player.coins in
+    Game_state.modify_player game_state target_player_id ~f:(fun player ->
+        { player with coins = player.coins - num_coins_to_steal })
+    |> Game_state.modify_active_player ~f:(fun player ->
+           { player with coins = player.coins + num_coins_to_steal })
+  in
+  match%bind.Deferred.Result
+    handle_challenge game_state (Game_state.get_active_player game_state).id
+      Captain
+  with
+  | `Successfully_challenged post_challenge_game_state ->
+      Deferred.Result.return post_challenge_game_state
+  | `No_challenge post_challenge_game_state
+  | `Failed_challenge post_challenge_game_state -> (
+      let target_player =
+        Game_state.get_player post_challenge_game_state target_player_id
+      in
+      match%bind.Deferred.Result
+        Player_io.choose_steal_response target_player.player_io ()
+        >>| Result.return
+      with
+      | `Allow ->
+          steal_two_coins post_challenge_game_state |> Deferred.Result.return
+      | `Block blocking_card -> (
+          match%bind.Deferred.Result
+            handle_challenge post_challenge_game_state target_player_id
+              (match blocking_card with
+              | `Ambassador -> Ambassador
+              | `Captain -> Captain)
+          with
+          | `Successfully_challenged post_second_challenge_game_state ->
+              Deferred.Result.return post_second_challenge_game_state
+          | `No_challenge post_second_challenge_game_state
+          | `Failed_challenge post_second_challenge_game_state ->
+              steal_two_coins post_second_challenge_game_state
+              |> Deferred.Result.return))
+
+let exchange game_state =
+  let active_player = Game_state.get_active_player game_state in
+  match Game_state.deck game_state with
+  | card_choice_1 :: card_choice_2 :: rest ->
+      let%map.Deferred returned_card_1, returned_card_2 =
+        Player_io.choose_cards_to_return active_player.player_io card_choice_1
+          card_choice_2
+      in
+      let remove_cards cards_chosen_from =
+        List.fold cards_chosen_from
+          ~init:(`Both (returned_card_1, returned_card_2), [])
+          ~f:(fun (remaining_to_remove_acc, hand_acc) card ->
+            print_s
+              [%message
+                (remaining_to_remove_acc
+                  : [ `Both of Card.t * Card.t | `One of Card.t | `None ])
+                  (hand_acc : Card.t list)
+                  (card : Card.t)];
+            match remaining_to_remove_acc with
+            | `Both (card_to_remove_1, card_to_remove_2) ->
+                if Card.equal card card_to_remove_1 then
+                  (`One card_to_remove_2, hand_acc)
+                else if Card.equal card card_to_remove_2 then
+                  (`One card_to_remove_1, hand_acc)
+                else
+                  (`Both (card_to_remove_1, card_to_remove_2), card :: hand_acc)
+            | `One card_to_remove ->
+                if Card.equal card card_to_remove then (`None, hand_acc)
+                else (`One card_to_remove, card :: hand_acc)
+            | `None -> (`None, card :: hand_acc))
+        |> Tuple2.get2
+      in
+      let new_hand =
+        match active_player.hand with
+        | Hand.One { hidden; revealed } ->
+            let new_cards =
+              remove_cards [ card_choice_1; card_choice_2; hidden ]
+            in
+            Hand.One { hidden = List.hd_exn new_cards; revealed }
+        | Hand.Both (card_1, card_2) ->
+            let new_cards =
+              remove_cards [ card_choice_1; card_choice_2; card_1; card_2 ]
+            in
+            print_s [%sexp (new_cards : Card.t list)];
+            Hand.Both
+              (List.hd_exn new_cards, List.hd_exn (List.tl_exn new_cards))
+      in
+      let cards_back_in_deck =
+        {
+          game_state with
+          deck = List.permute (returned_card_1 :: returned_card_2 :: rest);
+        }
+      in
+      Game_state.modify_player cards_back_in_deck active_player.id
+        ~f:(fun player -> { player with hand = new_hand })
+  | _ -> failwith "BUG: Too few cards in the deck"
 
 let take_turn_result game_state =
   let active_player = Game_state.get_active_player game_state in
@@ -612,7 +754,18 @@ let take_turn_result game_state =
   | Assassinate target_player_id ->
       assassinate game_state active_player.id target_player_id
   | ForeignAid -> take_foreign_aid game_state
-  | Coup _ | Tax | Steal _ | Exchange -> Deferred.Result.return game_state
+  | Coup target_player_id ->
+      let%bind.Deferred.Result () =
+        Game_state.players game_state
+        |> List.map ~f:(fun player ->
+               Player_io.notify_of_action_choice player.player_io
+                 active_player.id action)
+        |> Deferred.all_unit >>| Result.return
+      in
+      coup game_state target_player_id
+  | Tax -> take_tax game_state
+  | Steal target_player_id -> steal game_state target_player_id
+  | Exchange -> exchange game_state >>| Result.return
 
 let take_turn game_state =
   print_newline ();
