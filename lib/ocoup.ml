@@ -4,6 +4,7 @@ open! Async
 (* TODO:
    - timeout for player action
    - validate responses from player
+   - give more state to players
  *)
 
 (* The characters (and cards) available in the game *)
@@ -362,7 +363,12 @@ module Llm_player_io : sig
   include Player_io_S
 
   (* TODO: needs other player info *)
-  val create : Player_id.t -> card_1:Card.t -> card_2:Card.t -> t Deferred.t
+  val create :
+    Player_id.t ->
+    card_1:Card.t ->
+    card_2:Card.t ->
+    other_players:Player_id.t list ->
+    t Deferred.t
 end = struct
   type role = Developer | Assistant
 
@@ -376,31 +382,30 @@ end = struct
     writer : Writer.t;
   }
 
-  let create player_id ~card_1 ~card_2 =
+  let create player_id ~card_1 ~card_2 ~other_players =
     let events = Queue.create () in
     Queue.enqueue events (Developer, Rules.rules);
+    let other_players_string =
+      other_players
+      |> List.map ~f:(fun player_id ->
+             [%string "Player id: %{player_id#Player_id}"])
+      |> String.concat ~sep:", "
+    in
     Queue.enqueue events
       ( Developer,
         [%string
           "The game is starting. You are player %{player_id#Player_id}. Your \
-           starting cards are %{card_1#Card} and %{card_2#Card}. Players 0 and \
-           1 are your opponents."] );
+           starting cards are %{card_1#Card} and %{card_2#Card}. Players \
+           %{other_players_string} are your opponents."] );
 
     let%map writer =
       Writer.open_file [%string "player_%{player_id#Player_id}.txt"]
     in
     { events; player_id; writer }
 
-  (* let color_code t =
-    let i = 34 + (Player_id.to_int t.player_id mod 6) in
-    sprintf "\027[%dm" i *)
-
   let print_endline t message =
     ignore t.player_id;
     Writer.write_line t.writer message;
-    (* print_string (color_code t); *)
-    (* print_endline message; *)
-    (* print_string "\027[0m"; *)
     ()
 
   let headers =
@@ -797,9 +802,18 @@ module Game_state = struct
     |> List.concat_map ~f:(fun _i ->
            [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
 
+  let num_players = 3
+
   let create_player id card_1 card_2 =
     if Player_id.to_int id = 1 || Player_id.to_int id = 2 then
-      let%map llm_player_io = Llm_player_io.create id ~card_1 ~card_2 in
+      let other_players =
+        List.range 0 (num_players - 1)
+        |> List.filter ~f:(fun i -> i <> Player_id.to_int id)
+        |> List.map ~f:Player_id.of_int
+      in
+      let%map llm_player_io =
+        Llm_player_io.create id ~card_1 ~card_2 ~other_players
+      in
       let player_io = Player_io.Llm llm_player_io in
 
       { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
@@ -807,8 +821,6 @@ module Game_state = struct
       let%map cli_player_io = Cli_player_io.cli_player id in
       let player_io = Player_io.Cli cli_player_io in
       { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
-
-  let num_players = 3
 
   let init () =
     let deck =
@@ -841,12 +853,6 @@ let take_income game_state =
   Game_state.modify_active_player game_state ~f:(fun active_player ->
       { active_player with coins = active_player.coins + 1 })
 
-let _take_foreign_aid game_state =
-  (* TODO: check if the action is blocked *)
-  Game_state.modify_active_player game_state ~f:(fun active_player ->
-      { active_player with coins = active_player.coins + 2 })
-
-(* let init () = Game_state.init () *)
 let game_over = Deferred.Result.fail
 
 let lose_influence game_state target_player_id =
