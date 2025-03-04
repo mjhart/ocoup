@@ -2,11 +2,8 @@ open! Core
 open! Async
 
 (* TODO:
-   - implement other actions
    - timeout for player action
-   - implement players
-   - tell players about stuff
-   - better game state printing
+   - validate responses from player
  *)
 
 (* The characters (and cards) available in the game *)
@@ -123,7 +120,8 @@ module type Player_io_S = sig
   val choose_cards_to_return :
     t -> Card.t -> Card.t -> Hand.t -> (Card.t * Card.t) Deferred.t
 
-  val reveal_card : t -> unit -> [ `Card_1 | `Card_2 ] Deferred.t
+  val reveal_card :
+    t -> card_1:Card.t -> card_2:Card.t -> [ `Card_1 | `Card_2 ] Deferred.t
 
   val offer_challenge :
     t ->
@@ -190,9 +188,7 @@ end = struct
           (sprintf "You are player %d" (Player_id.to_int t.player_id));
         f (Lazy.force Reader.stdin))
 
-  (* TODO: implement *)
   let choose_action t =
-    (* TODO: implement for real. Make sure they have enough coins *)
     with_stdin t ~f:(fun stdin ->
         print_endline t "Choose action (I/FA/A n/C n/T/S n/E)";
         match%bind Reader.read_line stdin with
@@ -267,22 +263,59 @@ end = struct
                     print_endline t "Invalid action";
                     `Allow)))
 
-  let choose_cards_to_return t card_1 card_2 _hand =
-    (* TODO: implement *)
+  let choose_cards_to_return t card_1 card_2 hand =
+    let cards =
+      let cards_in_hand =
+        match hand with
+        | Hand.Both (card_1, card_2) -> [ card_1; card_2 ]
+        | Hand.One { hidden; revealed = _ } -> [ hidden ]
+      in
+      [ card_1; card_2 ] @ cards_in_hand
+    in
+    let cards_string =
+      cards
+      |> List.mapi ~f:(fun i card -> [%string "%{i#Int}: %{card#Card}"])
+      |> String.concat ~sep:" "
+    in
     with_stdin t ~f:(fun stdin ->
-        print_endline t "Choose cards to return (1/2)";
+        print_endline t
+          [%string
+            "Cards to choose from:\n\
+             %{cards_string}\n\
+             Choose 2 cards to return by entering the indices of the cards you \
+             want to return."];
         match%map Reader.read_line stdin with
         | `Eof -> unexpected_eof ()
         | `Ok action_str -> (
             match String.split action_str ~on:' ' with
-            | [ "1" ] -> (card_1, card_2)
-            | [ "2" ] -> (card_2, card_1)
+            | [ i1; i2 ] ->
+                ( List.nth_exn cards (Int.of_string i1),
+                  List.nth_exn cards (Int.of_string i2) )
             | _ ->
                 print_endline t "Invalid action";
                 (card_1, card_2)))
 
-  let reveal_card _t () = return `Card_1
-  (* TODO: implement *)
+  let reveal_card t ~card_1 ~card_2 =
+    let cards_string =
+      [ card_1; card_2 ]
+      |> List.mapi ~f:(fun i card -> [%string "%{i#Int}: %{card#Card}"])
+      |> String.concat ~sep:"\n"
+    in
+    with_stdin t ~f:(fun stdin ->
+        print_endline t
+          [%string
+            "Cards to choose from:\n\
+             %{cards_string}\n\
+             Which card do you want to reveal? (1/2)"];
+        match%map Reader.read_line stdin with
+        | `Eof -> unexpected_eof ()
+        | `Ok action_str -> (
+            match String.split action_str ~on:' ' with
+            | [ "1" ] -> `Card_1
+            | [ "2" ] -> `Card_2
+            | _ ->
+                print_endline t "Invalid action";
+                `Card_1))
 
   let offer_challenge t acting_player_id action ~cancelled_reason =
     (* TODO: Don't know who [action] is targeting *)
@@ -516,13 +549,15 @@ end = struct
       in
       [ card_1; card_2 ] @ cards_in_hand
     in
-    let cards_string = cards |> List.map ~f:Card.to_string |> String.concat in
+    let cards_string =
+      cards |> List.map ~f:Card.to_string |> String.concat ~sep:", "
+    in
     let prompt =
       [%string
         "You are exchanging cards. The cards available to you are \
-         %{cards_string}. Choose two cards to return to the deck. Respond with \
-         a json array of size exactly 2 containing the indices of the cards \
-         you want to return. The indices are 0-indexed."]
+         [%{cards_string}]. Choose two cards to return to the deck. Respond \
+         with a json array of size exactly 2 containing the indices of the \
+         cards you want to return. The indices are 0-indexed."]
     in
     let%map response = send_request t prompt in
     let indices = Yojson.Basic.Util.member "response" response in
@@ -533,7 +568,23 @@ end = struct
         print_endline t "Invalid response";
         (card_1, card_2)
 
-  let reveal_card _t () = return `Card_1
+  let reveal_card t ~card_1 ~card_2 =
+    let cards_string =
+      [ card_1; card_2 ] |> List.map ~f:Card.to_string |> String.concat
+    in
+    let prompt =
+      [%string
+        "You are revealing a card. The cards available to you are \
+         %{cards_string}. Which card do you want to reveal? (1/2)"]
+    in
+    let%map response = send_request t prompt in
+    let response = Yojson.Basic.Util.member "response" response in
+    match response with
+    | `String "1" -> `Card_1
+    | `String "2" -> `Card_2
+    | _ ->
+        print_endline t "Invalid response";
+        `Card_1
 
   let offer_challenge t acting_player_id card ~cancelled_reason:_ =
     let prompt =
@@ -607,10 +658,10 @@ end = struct
     | Cli cli -> Cli_player_io.choose_cards_to_return cli card_1 card_2 _hand
     | Llm llm -> Llm_player_io.choose_cards_to_return llm card_1 card_2 _hand
 
-  let reveal_card t () =
+  let reveal_card t ~card_1 ~card_2 =
     match t with
-    | Cli cli -> Cli_player_io.reveal_card cli ()
-    | Llm llm -> Llm_player_io.reveal_card llm ()
+    | Cli cli -> Cli_player_io.reveal_card cli ~card_1 ~card_2
+    | Llm llm -> Llm_player_io.reveal_card llm ~card_1 ~card_2
 
   let offer_challenge t acting_player_id card ~cancelled_reason =
     match t with
@@ -701,11 +752,14 @@ module Game_state = struct
   let end_turn t =
     { t with players = List.tl_exn t.players @ [ List.hd_exn t.players ] }
 
-  let get_player t id =
+  let get_player_if_exists t id =
+    List.find t.players ~f:(fun p -> Player_id.equal p.id id)
+
+  let get_player_exn t id =
     List.find_exn t.players ~f:(fun p -> Player_id.equal p.id id)
 
   let is_valid_action t active_player_id action =
-    let player = get_player t active_player_id in
+    let player = get_player_exn t active_player_id in
     let cost, target_player_id =
       match action with
       | Action.Income | ForeignAid | Tax | Exchange -> (0, None)
@@ -728,14 +782,14 @@ module Game_state = struct
     has_enough_coins && is_valid_target && not_targeting_self
 
   let has_card t id card =
-    let player = get_player t id in
+    let player = get_player_exn t id in
     match player.hand with
     | Hand.Both (card_1, card_2) ->
         List.mem [ card_1; card_2 ] card ~equal:Card.equal
     | Hand.One { hidden; revealed = _ } -> Card.equal hidden card
 
   let _valid_actions t active_player_id =
-    let player = get_player t active_player_id in
+    let player = get_player_exn t active_player_id in
     Action.valid_actions player.coins
 
   let sorted_deck =
@@ -797,11 +851,12 @@ let game_over = Deferred.Result.fail
 
 let lose_influence game_state target_player_id =
   let%bind.Deferred.Result new_game_state, revealed_card =
-    let player = Game_state.get_player game_state target_player_id in
+    let player = Game_state.get_player_exn game_state target_player_id in
     match player.hand with
     | Hand.Both (card_1, card_2) ->
         let%map.Deferred.Result revealed_card =
-          Player_io.reveal_card player.player_io () >>| Result.return
+          Player_io.reveal_card player.player_io ~card_1 ~card_2
+          >>| Result.return
         in
         let new_game_state =
           Game_state.modify_player game_state target_player_id ~f:(fun player ->
@@ -854,7 +909,7 @@ let randomly_get_new_card game_state active_player_id card_to_replace =
   in
   let%map () =
     Player_io.notify_of_new_card
-      (Game_state.get_player new_game_state active_player_id).player_io
+      (Game_state.get_player_exn new_game_state active_player_id).player_io
       replacement_card
   in
   { new_game_state with deck = remaining_deck }
@@ -938,29 +993,34 @@ let assassinate game_state active_player_id target_player_id =
       Deferred.Result.return post_challenge_game_state
   | `No_challenge post_challenge_game_state
   | `Failed_challenge post_challenge_game_state -> (
-      let target_player =
-        Game_state.get_player post_challenge_game_state target_player_id
-      in
-      match%bind.Deferred.Result
-        Player_io.choose_assasination_response target_player.player_io
-          ~asassinating_player_id:active_player_id
-        >>| Result.return
+      match
+        Game_state.get_player_if_exists post_challenge_game_state
+          target_player_id
       with
-      | `Allow -> lose_influence post_challenge_game_state target_player_id
-      | `Block -> (
+      | None -> Deferred.Result.return post_challenge_game_state
+      | Some target_player -> (
           match%bind.Deferred.Result
-            handle_challenge post_challenge_game_state target_player_id Contessa
+            Player_io.choose_assasination_response target_player.player_io
+              ~asassinating_player_id:active_player_id
+            >>| Result.return
           with
-          | `Successfully_challenged post_second_challenge_game_state ->
-              if
-                Game_state.player_in_game post_second_challenge_game_state
-                  target_player_id
-              then
-                lose_influence post_second_challenge_game_state target_player_id
-              else Deferred.Result.return post_second_challenge_game_state
-          | `No_challenge post_second_challenge_game_state
-          | `Failed_challenge post_second_challenge_game_state ->
-              Deferred.Result.return post_second_challenge_game_state))
+          | `Allow -> lose_influence post_challenge_game_state target_player_id
+          | `Block -> (
+              match%bind.Deferred.Result
+                handle_challenge post_challenge_game_state target_player_id
+                  Contessa
+              with
+              | `Successfully_challenged post_second_challenge_game_state ->
+                  if
+                    Game_state.player_in_game post_second_challenge_game_state
+                      target_player_id
+                  then
+                    lose_influence post_second_challenge_game_state
+                      target_player_id
+                  else Deferred.Result.return post_second_challenge_game_state
+              | `No_challenge post_second_challenge_game_state
+              | `Failed_challenge post_second_challenge_game_state ->
+                  Deferred.Result.return post_second_challenge_game_state)))
 
 let take_foreign_aid game_state =
   let take_two_coins game_state =
@@ -1009,7 +1069,7 @@ let take_tax game_state =
 
 let steal game_state target_player_id =
   let steal_two_coins game_state =
-    let target_player = Game_state.get_player game_state target_player_id in
+    let target_player = Game_state.get_player_exn game_state target_player_id in
     let num_coins_to_steal = Int.min 2 target_player.coins in
     Game_state.modify_player game_state target_player_id ~f:(fun player ->
         { player with coins = player.coins - num_coins_to_steal })
@@ -1025,7 +1085,7 @@ let steal game_state target_player_id =
   | `No_challenge post_challenge_game_state
   | `Failed_challenge post_challenge_game_state -> (
       let target_player =
-        Game_state.get_player post_challenge_game_state target_player_id
+        Game_state.get_player_exn post_challenge_game_state target_player_id
       in
       match%bind.Deferred.Result
         Player_io.choose_steal_response target_player.player_io
