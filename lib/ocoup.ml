@@ -860,21 +860,20 @@ let lose_influence game_state target_player_id =
     let player = Game_state.get_player_exn game_state target_player_id in
     match player.hand with
     | Hand.Both (card_1, card_2) ->
-        let%map.Deferred.Result revealed_card =
+        let%map.Deferred.Result revealed_card_choice =
           Player_io.reveal_card player.player_io ~card_1 ~card_2
           >>| Result.return
         in
+        let new_hand, revealed_card =
+          match revealed_card_choice with
+          | `Card_1 -> (Hand.One { hidden = card_2; revealed = card_1 }, card_1)
+          | `Card_2 -> (Hand.One { hidden = card_1; revealed = card_2 }, card_2)
+        in
         let new_game_state =
           Game_state.modify_player game_state target_player_id ~f:(fun player ->
-              let new_hand =
-                match revealed_card with
-                | `Card_1 -> Hand.One { hidden = card_2; revealed = card_1 }
-                | `Card_2 -> Hand.One { hidden = card_1; revealed = card_2 }
-              in
               { player with hand = new_hand })
         in
-        (* TODO fix *)
-        (new_game_state, Card.Contessa)
+        (new_game_state, revealed_card)
     | Hand.One { hidden; revealed = _ } -> (
         let remaining_players =
           List.filter game_state.players ~f:(fun player ->
