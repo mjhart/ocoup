@@ -151,6 +151,8 @@ module Cli_player_io : sig
 
   val cli_player : Player_id.t -> t Deferred.t
 end = struct
+  let unexpected_eof () = failwith "EOF"
+
   let stdin_throttle =
     Lazy.from_fun (fun () ->
         Throttle.Sequencer.create ~continue_on_error:false ())
@@ -192,9 +194,9 @@ end = struct
   let choose_action t =
     (* TODO: implement for real. Make sure they have enough coins *)
     with_stdin t ~f:(fun stdin ->
-        print_endline t "Choose action (I/FA/C/T/S/E)";
+        print_endline t "Choose action (I/FA/A n/C n/T/S n/E)";
         match%bind Reader.read_line stdin with
-        | `Eof -> failwith "EOF"
+        | `Eof -> unexpected_eof ()
         | `Ok action_str -> (
             match String.split action_str ~on:' ' with
             | [ "I" ] -> return Action.Income
@@ -207,7 +209,9 @@ end = struct
             | [ "S"; n ] ->
                 return (Action.Steal (Player_id.of_int (Int.of_string n)))
             | [ "E" ] -> return Action.Exchange
-            | _ -> failwith "Invalid action"))
+            | _ ->
+                print_endline t "Invalid action";
+                return Action.Income))
 
   let choose_assasination_response t ~asassinating_player_id =
     with_stdin t ~f:(fun stdin ->
@@ -216,12 +220,14 @@ end = struct
             "Player %{asassinating_player_id#Player_id} is attempting to \
              assassinate you. Block assassination? (Y/N)"];
         match%map Reader.read_line stdin with
-        | `Eof -> failwith "EOF"
+        | `Eof -> unexpected_eof ()
         | `Ok action_str -> (
             match String.split action_str ~on:' ' with
             | [ "N" ] -> `Allow
             | [ "Y" ] -> `Block
-            | _ -> failwith "Invalid action"))
+            | _ ->
+                print_endline t "Invalid action";
+                `Allow))
 
   let choose_steal_response t ~stealing_player_id =
     with_stdin t ~f:(fun stdin ->
@@ -230,13 +236,15 @@ end = struct
             "Player %{stealing_player_id#Player_id} is stealing from you. \
              Block steal? (C/A/N)"];
         match%map Reader.read_line stdin with
-        | `Eof -> failwith "EOF"
+        | `Eof -> unexpected_eof ()
         | `Ok action_str -> (
             match String.split action_str ~on:' ' with
             | [ "C" ] -> `Block `Captain
             | [ "A" ] -> `Block `Ambassador
             | [ "N" ] -> `Allow
-            | _ -> failwith "Invalid action"))
+            | _ ->
+                print_endline t "Invalid action";
+                `Allow))
 
   let choose_foreign_aid_response t () ~cancelled_reason =
     upon cancelled_reason (function
@@ -250,24 +258,28 @@ end = struct
         | false -> (
             print_endline t "Block foreign aid? (Y/N)";
             match%map Reader.read_line stdin with
-            | `Eof -> failwith "EOF"
+            | `Eof -> unexpected_eof ()
             | `Ok action_str -> (
                 match String.split action_str ~on:' ' with
                 | [ "Y" ] -> `Block
                 | [ "N" ] -> `Allow
-                | _ -> failwith "Invalid action")))
+                | _ ->
+                    print_endline t "Invalid action";
+                    `Allow)))
 
   let choose_cards_to_return t card_1 card_2 _hand =
     (* TODO: implement *)
     with_stdin t ~f:(fun stdin ->
         print_endline t "Choose cards to return (1/2)";
         match%map Reader.read_line stdin with
-        | `Eof -> failwith "EOF"
+        | `Eof -> unexpected_eof ()
         | `Ok action_str -> (
             match String.split action_str ~on:' ' with
             | [ "1" ] -> (card_1, card_2)
             | [ "2" ] -> (card_2, card_1)
-            | _ -> failwith "Invalid action"))
+            | _ ->
+                print_endline t "Invalid action";
+                (card_1, card_2)))
 
   let reveal_card _t () = return `Card_1
   (* TODO: implement *)
@@ -288,12 +300,14 @@ end = struct
                   (action : Card.t)
                   (acting_player_id : Player_id.t)];
             match%map Reader.read_line stdin with
-            | `Eof -> failwith "EOF"
+            | `Eof -> unexpected_eof ()
             | `Ok action_str -> (
                 match String.split action_str ~on:' ' with
                 | [ "N" ] -> `No_challenge
                 | [ "Y" ] -> `Challenge
-                | _ -> failwith "Invalid action")))
+                | _ ->
+                    print_endline t "Invalid action";
+                    `No_challenge)))
 
   let notify_of_action_choice t player_id action =
     print_s t
@@ -438,7 +452,9 @@ end = struct
     | `String "Steal", `Int target_player_id ->
         Action.Steal (Player_id.of_int target_player_id)
     | `String "Exchange", `Null -> Action.Exchange
-    | _ -> failwith "Invalid action"
+    | _ ->
+        print_endline t "Invalid action";
+        Action.Income
 
   let choose_assasination_response t ~asassinating_player_id =
     let prompt =
@@ -452,7 +468,9 @@ end = struct
     match response with
     | `String "Allow" -> `Allow
     | `String "Block" -> `Block
-    | _ -> failwith "Invalid response"
+    | _ ->
+        print_endline t "Invalid response";
+        `Allow
 
   let choose_foreign_aid_response t () ~cancelled_reason:_ =
     let prompt =
@@ -465,7 +483,9 @@ end = struct
     match response with
     | `String "Allow" -> `Allow
     | `String "Block" -> `Block
-    | _ -> failwith "Invalid response"
+    | _ ->
+        print_endline t "Invalid response";
+        `Allow
 
   let choose_steal_response t ~stealing_player_id =
     let prompt =
@@ -483,7 +503,9 @@ end = struct
     | `String "Allow", `Null -> `Allow
     | `String "Block", `String "Ambassador" -> `Block `Ambassador
     | `String "Block", `String "Captain" -> `Block `Captain
-    | _ -> failwith "Invalid response"
+    | _ ->
+        print_endline t "Invalid response";
+        `Allow
 
   let choose_cards_to_return t card_1 card_2 hand =
     let cards =
@@ -507,7 +529,9 @@ end = struct
     match Yojson.Basic.Util.to_list indices with
     | [ `Int index_1; `Int index_2 ] ->
         (List.nth_exn cards index_1, List.nth_exn cards index_2)
-    | _ -> failwith "Invalid response"
+    | _ ->
+        print_endline t "Invalid response";
+        (card_1, card_2)
 
   let reveal_card _t () = return `Card_1
 
@@ -523,7 +547,9 @@ end = struct
     match response with
     | `String "No_challenge" -> `No_challenge
     | `String "Challenge" -> `Challenge
-    | _ -> failwith "Invalid response"
+    | _ ->
+        print_endline t "Invalid response";
+        `No_challenge
 
   let notify_of_action_choice t player_id action =
     Queue.enqueue t.events
@@ -832,14 +858,6 @@ let randomly_get_new_card game_state active_player_id card_to_replace =
       replacement_card
   in
   { new_game_state with deck = remaining_deck }
-
-let _required_card_for_action = function
-  | `Assassinate -> Card.Assassin
-  | `Steal -> Captain
-  | `Exchange -> Ambassador
-  | `Tax -> Duke
-  | `Block_assassination -> Contessa
-  | `Block_foreign_aid -> Duke
 
 let handle_response_race game_state acting_player_id ~f =
   (* TODO: there's probably a memory leak in here *)
