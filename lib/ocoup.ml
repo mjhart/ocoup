@@ -36,10 +36,6 @@ end
 
 (* Actions a player may choose. Some actions have a target (represented by a player id). *)
 module Action = struct
-  (* module Challengable_actions = struct
-    type t = Tax | Assassinate | Steal | Exchange
-  end *)
-
   type t =
     | Income (* take 1 coin from the Treasury *)
     | ForeignAid (* take 2 coins (subject to blocking) *)
@@ -362,7 +358,6 @@ end
 module Llm_player_io : sig
   include Player_io_S
 
-  (* TODO: needs other player info *)
   val create :
     Player_id.t ->
     card_1:Card.t ->
@@ -967,7 +962,7 @@ let handle_challenge game_state acting_player_id (action : Card.t) =
         | `Challenge -> `Block)
   in
   match challenge_result with
-  | `Allow -> Deferred.Result.return (`No_challenge game_state)
+  | `Allow -> Deferred.Result.return (`Failed_or_no_challenge game_state)
   | `Blocked_by challenger_player_id -> (
       let card_to_replace = action in
       match Game_state.has_card game_state acting_player_id card_to_replace with
@@ -984,7 +979,7 @@ let handle_challenge game_state acting_player_id (action : Card.t) =
           let%map.Deferred.Result new_game_state =
             lose_influence game_state_after_new_card challenger_player_id
           in
-          `Failed_challenge new_game_state)
+          `Failed_or_no_challenge new_game_state)
 
 let assassinate game_state active_player_id target_player_id =
   let game_state =
@@ -996,8 +991,7 @@ let assassinate game_state active_player_id target_player_id =
   with
   | `Successfully_challenged post_challenge_game_state ->
       Deferred.Result.return post_challenge_game_state
-  | `No_challenge post_challenge_game_state
-  | `Failed_challenge post_challenge_game_state -> (
+  | `Failed_or_no_challenge post_challenge_game_state -> (
       match
         Game_state.get_player_if_exists post_challenge_game_state
           target_player_id
@@ -1023,8 +1017,7 @@ let assassinate game_state active_player_id target_player_id =
                     lose_influence post_second_challenge_game_state
                       target_player_id
                   else Deferred.Result.return post_second_challenge_game_state
-              | `No_challenge post_second_challenge_game_state
-              | `Failed_challenge post_second_challenge_game_state ->
+              | `Failed_or_no_challenge post_second_challenge_game_state ->
                   Deferred.Result.return post_second_challenge_game_state)))
 
 let take_foreign_aid game_state =
@@ -1048,8 +1041,7 @@ let take_foreign_aid game_state =
       | `Successfully_challenged post_second_challenge_game_state ->
           Deferred.Result.return
             (take_two_coins post_second_challenge_game_state)
-      | `No_challenge post_second_challenge_game_state
-      | `Failed_challenge post_second_challenge_game_state ->
+      | `Failed_or_no_challenge post_second_challenge_game_state ->
           Deferred.Result.return post_second_challenge_game_state)
   | `Allow -> Deferred.Result.return (take_two_coins game_state)
 
@@ -1067,8 +1059,7 @@ let take_tax game_state =
   with
   | `Successfully_challenged post_challenge_game_state ->
       post_challenge_game_state
-  | `No_challenge post_challenge_game_state
-  | `Failed_challenge post_challenge_game_state ->
+  | `Failed_or_no_challenge post_challenge_game_state ->
       Game_state.modify_active_player post_challenge_game_state
         ~f:(fun player -> { player with coins = player.coins + 3 })
 
@@ -1087,31 +1078,39 @@ let steal game_state target_player_id =
   with
   | `Successfully_challenged post_challenge_game_state ->
       Deferred.Result.return post_challenge_game_state
-  | `No_challenge post_challenge_game_state
-  | `Failed_challenge post_challenge_game_state -> (
-      let target_player =
-        Game_state.get_player_exn post_challenge_game_state target_player_id
-      in
-      match%bind.Deferred.Result
-        Player_io.choose_steal_response target_player.player_io
-          ~stealing_player_id:(Game_state.get_active_player game_state).id
-        >>| Result.return
+  | `Failed_or_no_challenge post_challenge_game_state -> (
+      (* TODO make sure target still alive *)
+      match
+        Game_state.get_player_if_exists post_challenge_game_state
+          target_player_id
       with
-      | `Allow ->
-          steal_two_coins post_challenge_game_state |> Deferred.Result.return
-      | `Block blocking_card -> (
+      | None -> Deferred.Result.return post_challenge_game_state
+      | Some target_player -> (
           match%bind.Deferred.Result
-            handle_challenge post_challenge_game_state target_player_id
-              (match blocking_card with
-              | `Ambassador -> Ambassador
-              | `Captain -> Captain)
+            Player_io.choose_steal_response target_player.player_io
+              ~stealing_player_id:(Game_state.get_active_player game_state).id
+            >>| Result.return
           with
-          | `Successfully_challenged post_second_challenge_game_state ->
-              Deferred.Result.return post_second_challenge_game_state
-          | `No_challenge post_second_challenge_game_state
-          | `Failed_challenge post_second_challenge_game_state ->
-              steal_two_coins post_second_challenge_game_state
-              |> Deferred.Result.return))
+          | `Allow ->
+              steal_two_coins post_challenge_game_state
+              |> Deferred.Result.return
+          | `Block blocking_card -> (
+              match%map.Deferred.Result
+                handle_challenge post_challenge_game_state target_player_id
+                  (match blocking_card with
+                  | `Ambassador -> Ambassador
+                  | `Captain -> Captain)
+              with
+              | `Successfully_challenged post_second_challenge_game_state ->
+                  post_second_challenge_game_state
+              | `Failed_or_no_challenge post_second_challenge_game_state -> (
+                  match
+                    Game_state.get_player_if_exists
+                      post_second_challenge_game_state target_player_id
+                  with
+                  | None -> post_second_challenge_game_state
+                  | Some _target_player ->
+                      steal_two_coins post_second_challenge_game_state))))
 
 let exchange game_state =
   let active_player = Game_state.get_active_player game_state in
