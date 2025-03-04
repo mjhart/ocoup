@@ -13,6 +13,13 @@ open! Async
 module Card = struct
   type t = Duke | Assassin | Captain | Ambassador | Contessa
   [@@deriving equal, sexp]
+
+  let to_string = function
+    | Duke -> "Duke"
+    | Assassin -> "Assassin"
+    | Captain -> "Captain"
+    | Ambassador -> "Ambassador"
+    | Contessa -> "Contessa"
 end
 
 module Player_id : sig
@@ -98,7 +105,9 @@ module type Player_io_S = sig
   type t
 
   val choose_action : t -> Action.t Deferred.t
-  val choose_assasination_response : t -> unit -> [ `Allow | `Block ] Deferred.t
+
+  val choose_assasination_response :
+    t -> asassinating_player_id:Player_id.t -> [ `Allow | `Block ] Deferred.t
 
   val choose_foreign_aid_response :
     t ->
@@ -151,7 +160,6 @@ end = struct
     let%map writer =
       Writer.open_file [%string "player_%{player_id#Player_id}.txt"]
     in
-
     { player_id; writer }
 
   let color_code t =
@@ -199,7 +207,7 @@ end = struct
             | [ "E" ] -> return Action.Exchange
             | _ -> failwith "Invalid action"))
 
-  let choose_assasination_response t () =
+  let choose_assasination_response t ~asassinating_player_id:_ =
     with_stdin t ~f:(fun stdin ->
         print_endline t "Block assassination? (Y/N)";
         match%map Reader.read_line stdin with
@@ -289,98 +297,118 @@ module Llm_player_io : sig
   include Player_io_S
 
   (* TODO: needs other player info *)
-  val create : Player_id.t -> card_1:Card.t -> card_2:Card.t -> t
+  val create : Player_id.t -> card_1:Card.t -> card_2:Card.t -> t Deferred.t
 end = struct
-  let open_api_key = lazy (Sys.getenv "OPENAI_API_KEY" |> Option.value_exn)
+  type role = Developer | Assistant
+
+  let role_to_string = function
+    | Developer -> "developer"
+    | Assistant -> "assistant"
 
   type t = {
+    events : (role * string) Queue.t;
     player_id : Player_id.t;
-    hand : Hand.t;
-    mutable events : string list;
+    writer : Writer.t;
   }
 
   let create player_id ~card_1 ~card_2 =
-    { player_id; hand = Hand.Both (card_1, card_2); events = [] }
+    let events = Queue.create () in
+    Queue.enqueue events (Developer, Rules.rules);
+    Queue.enqueue events
+      ( Developer,
+        [%string
+          "The game is starting. You are player %{player_id#Player_id}. Your \
+           starting cards are %{card_1#Card} and %{card_2#Card}. Players 0 and \
+           1 are your opponents."] );
+
+    let%map writer =
+      Writer.open_file [%string "player_%{player_id#Player_id}.txt"]
+    in
+    { events; player_id; writer }
+
+  (* let color_code t =
+    let i = 34 + (Player_id.to_int t.player_id mod 6) in
+    sprintf "\027[%dm" i *)
+
+  let print_endline t message =
+    ignore t.player_id;
+    Writer.write_line t.writer message;
+    (* print_string (color_code t); *)
+    (* print_endline message; *)
+    (* print_string "\027[0m"; *)
+    ()
 
   let headers =
-    Http.Header.of_list
-      [
-        ("Content-Type", "application/json");
-        ("Authorization", "Bearer " ^ Lazy.force open_api_key);
-      ]
+    Lazy.from_fun (fun () ->
+        Http.Header.of_list
+          [
+            ("Content-Type", "application/json");
+            ( "Authorization",
+              "Bearer " ^ (Sys.getenv "OPENAI_API_KEY" |> Option.value_exn) );
+          ])
 
-  let choose_action t =
+  let send_request t prompt =
     let open Cohttp_async in
-    let state = [%sexp (t.hand : Hand.t)] in
+    Queue.enqueue t.events (Developer, prompt);
+    Queue.iter t.events ~f:(fun (role, content) ->
+        print_endline t
+          [%string "Role: %{role_to_string role} Content: %{content}"]);
+    let messages =
+      Queue.to_list t.events
+      |> List.map ~f:(fun (role, content) ->
+             `Assoc
+               [
+                 ("role", `String (role_to_string role));
+                 ("content", `String content);
+               ])
+    in
     let post_body =
       let json =
         `Assoc
           [
             ("model", `String "gpt-4o-mini");
-            ( "messages",
-              `List
-                [
-                  `Assoc
-                    [
-                      ("role", `String "developer");
-                      ("content", `String "%{Rules.rules}");
-                    ];
-                  `Assoc
-                    [
-                      ("role", `String "developer");
-                      ( "content",
-                        `String
-                          [%string
-                            "The game is starting. You are player \
-                             %{t.player_id#Player_id}. Your cards are \
-                             %{state#Sexp}. You have 2 coins. Players 1 and 2 \
-                             are your opponents. "] );
-                    ];
-                  `Assoc
-                    [
-                      ("role", `String "developer");
-                      ( "content",
-                        `String
-                          "Other players: 1, 2. Hand: Duke, Contessa. Coins: \
-                           7. Choose action: Income | ForeignAid | Assasinate \
-                           player_id | Coup target_player_id | Tax | Steal \
-                           target_player_id | Exchange. Respond with a json \
-                           object with the key 'action' and the value being \
-                           the action you want to take. If the action requires \
-                           a target player, additionally provide the key \
-                           'target_player_id' and the value will be the the \
-                           player_id of the target player." );
-                    ];
-                ] );
+            ("messages", `List messages);
             ("response_format", `Assoc [ ("type", `String "json_object") ]);
           ]
       in
       Body.of_string (Yojson.Basic.to_string json)
     in
-    let%bind response, body =
-      Client.post ~headers
+    (* print_s [%sexp (post_body : Body.t)]; *)
+    let%bind _response, body =
+      Client.post ~headers:(Lazy.force headers)
         (Uri.of_string "https://api.openai.com/v1/chat/completions")
         ~body:post_body
     in
     let%map body = Body.to_string body in
-    let code =
-      response |> Cohttp.Response.status |> Cohttp.Code.code_of_status
-    in
-    print_s [%sexp (code : int)];
-    print_endline body;
+    print_endline t body;
     let json = Yojson.Basic.from_string body in
-    let content =
+    let content_string =
       Yojson.Basic.Util.member "choices" json
       |> Yojson.Basic.Util.to_list |> List.hd_exn
       |> Yojson.Basic.Util.member "message"
       |> Yojson.Basic.Util.member "content"
       |> function
-      | `String content -> Yojson.Basic.from_string content
+      | `String content -> content
       | _ -> failwith "Invalid content"
     in
-    let action = Yojson.Basic.Util.member "action" content in
+    Queue.enqueue t.events (Assistant, content_string);
+    Yojson.Basic.from_string content_string
 
-    let target_player_id = Yojson.Basic.Util.member "target_player_id" json in
+  let choose_action t =
+    let prompt =
+      "Choose action: Income | ForeignAid | Assassinate player_id | Coup \
+       target_player_id | Tax | Steal target_player_id | Exchange. Respond \
+       with a json object with the key 'action' and the value being the action \
+       you want to take. If the action requires a target player, additionally \
+       provide the key 'target_player_id' and the value will be the the \
+       player_id of the target player."
+    in
+
+    let%map response = send_request t prompt in
+    let action = Yojson.Basic.Util.member "action" response in
+    let target_player_id =
+      Yojson.Basic.Util.member "target_player_id" response
+    in
     match (action, target_player_id) with
     | `String "Income", `Null -> Action.Income
     | `String "ForeignAid", `Null -> Action.ForeignAid
@@ -394,26 +422,109 @@ end = struct
     | `String "Exchange", `Null -> Action.Exchange
     | _ -> failwith "Invalid action"
 
-  let choose_assasination_response _t () = return `Allow
-  let choose_foreign_aid_response _t () ~cancelled_reason:_ = return `Allow
-  let choose_steal_response _t () = return `Allow
-  let choose_cards_to_return _t _card_1 _card_2 _hand = failwith "TODO"
+  let choose_assasination_response t ~asassinating_player_id =
+    let prompt =
+      [%string
+        "You are being assasinated by player \
+         %{asassinating_player_id#Player_id}. Respond with a json object with \
+         the key 'response' and the value being 'Allow' or 'Block'."]
+    in
+    let%map response = send_request t prompt in
+    let response = Yojson.Basic.Util.member "response" response in
+    match response with
+    | `String "Allow" -> `Allow
+    | `String "Block" -> `Block
+    | _ -> failwith "Invalid response"
+
+  let choose_foreign_aid_response t () ~cancelled_reason:_ =
+    let prompt =
+      [%string
+        "Player is attempting to take foreign aid. Respond with a json object \
+         with the key 'response' and the value being 'Allow' or 'Block'."]
+    in
+    let%map response = send_request t prompt in
+    let response = Yojson.Basic.Util.member "response" response in
+    match response with
+    | `String "Allow" -> `Allow
+    | `String "Block" -> `Block
+    | _ -> failwith "Invalid response"
+
+  let choose_steal_response t () =
+    let prompt =
+      [%string
+        "Player is attempting to steal from you. Respond with a json object \
+         with the key 'response' and the value being 'Allow' or 'Block'. If \
+         you choose to block, additionally provide the card you are blocking \
+         with in the key 'card' with the value being 'Ambassador' or \
+         'Captain'."]
+    in
+    let%map response = send_request t prompt in
+    let action = Yojson.Basic.Util.member "response" response in
+    let card = Yojson.Basic.Util.member "card" response in
+    match (action, card) with
+    | `String "Allow", `Null -> `Allow
+    | `String "Block", `String "Ambassador" -> `Block `Ambassador
+    | `String "Block", `String "Captain" -> `Block `Captain
+    | _ -> failwith "Invalid response"
+
+  let choose_cards_to_return t card_1 card_2 hand =
+    let cards =
+      let cards_in_hand =
+        match hand with
+        | Hand.Both (card_1, card_2) -> [ card_1; card_2 ]
+        | Hand.One { hidden; revealed = _ } -> [ hidden ]
+      in
+      [ card_1; card_2 ] @ cards_in_hand
+    in
+    let cards_string = cards |> List.map ~f:Card.to_string |> String.concat in
+    let prompt =
+      [%string
+        "You are exchanging cards. The cards available to you are \
+         %{cards_string}. Choose two cards to return to the deck. Respond with \
+         a json array of size exactly 2 containing the indices of the cards \
+         you want to return. The indices are 0-indexed."]
+    in
+    let%map response = send_request t prompt in
+    let indices = Yojson.Basic.Util.member "response" response in
+    match Yojson.Basic.Util.to_list indices with
+    | [ `Int index_1; `Int index_2 ] ->
+        (List.nth_exn cards index_1, List.nth_exn cards index_2)
+    | _ -> failwith "Invalid response"
+
   let reveal_card _t () = return `Card_1
 
-  let offer_challenge _t _acting_player_id _action ~cancelled_reason:_ =
-    return `No_challenge
+  let offer_challenge t acting_player_id card ~cancelled_reason:_ =
+    let prompt =
+      [%string
+        "Player %{acting_player_id#Player_id} is claiming card %{card#Card}. \
+         Respond with a json object with the key 'response' and the value \
+         being 'No_challenge' or 'Challenge'."]
+    in
+    let%map response = send_request t prompt in
+    let response = Yojson.Basic.Util.member "response" response in
+    match response with
+    | `String "No_challenge" -> `No_challenge
+    | `String "Challenge" -> `Challenge
+    | _ -> failwith "Invalid response"
 
   let notify_of_action_choice t player_id action =
-    t.events <-
-      t.events
-      @ [
-          [%string
-            "Player %{player_id#Player_id} chose action %{action#Action}"];
-        ];
+    Queue.enqueue t.events
+      ( Developer,
+        [%string "Player %{player_id#Player_id} chose action %{action#Action}"]
+      );
     return ()
 
-  let notify_of_lost_influence _t _player_id _card = failwith "TODO"
-  let notify_of_new_card _t _card = failwith "TODO"
+  let notify_of_lost_influence t player_id card =
+    Queue.enqueue t.events
+      ( Developer,
+        [%string
+          "Player %{player_id#Player_id} lost influence card %{card#Card}"] );
+    return ()
+
+  let notify_of_new_card t card =
+    Queue.enqueue t.events
+      (Developer, [%string "Received new card %{card#Card}"]);
+    return ()
 end
 
 module Player_io : sig
@@ -428,10 +539,12 @@ end = struct
     | Cli cli -> Cli_player_io.choose_action cli
     | Llm llm -> Llm_player_io.choose_action llm
 
-  let choose_assasination_response t () =
+  let choose_assasination_response t ~asassinating_player_id =
     match t with
-    | Cli cli -> Cli_player_io.choose_assasination_response cli ()
-    | Llm llm -> Llm_player_io.choose_assasination_response llm ()
+    | Cli cli ->
+        Cli_player_io.choose_assasination_response cli ~asassinating_player_id
+    | Llm llm ->
+        Llm_player_io.choose_assasination_response llm ~asassinating_player_id
 
   let choose_foreign_aid_response t () ~cancelled_reason =
     match t with
@@ -583,11 +696,11 @@ module Game_state = struct
            [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
 
   let create_player id card_1 card_2 =
-    if Player_id.to_int id = 2 then
-      let llm_player_io = Llm_player_io.create id ~card_1 ~card_2 in
+    if Player_id.to_int id = 1 || Player_id.to_int id = 2 then
+      let%map llm_player_io = Llm_player_io.create id ~card_1 ~card_2 in
       let player_io = Player_io.Llm llm_player_io in
-      return
-        { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
+
+      { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
     else
       let%map cli_player_io = Cli_player_io.cli_player id in
       let player_io = Player_io.Cli cli_player_io in
@@ -791,7 +904,8 @@ let assassinate game_state active_player_id target_player_id =
         Game_state.get_player post_challenge_game_state target_player_id
       in
       match%bind.Deferred.Result
-        Player_io.choose_assasination_response target_player.player_io ()
+        Player_io.choose_assasination_response target_player.player_io
+          ~asassinating_player_id:active_player_id
         >>| Result.return
       with
       | `Allow -> lose_influence post_challenge_game_state target_player_id
