@@ -116,7 +116,9 @@ module type Player_io_S = sig
     [ `Allow | `Block ] Deferred.t
 
   val choose_steal_response :
-    t -> unit -> [ `Allow | `Block of [ `Captain | `Ambassador ] ] Deferred.t
+    t ->
+    stealing_player_id:Player_id.t ->
+    [ `Allow | `Block of [ `Captain | `Ambassador ] ] Deferred.t
 
   val choose_cards_to_return :
     t -> Card.t -> Card.t -> Hand.t -> (Card.t * Card.t) Deferred.t
@@ -207,9 +209,12 @@ end = struct
             | [ "E" ] -> return Action.Exchange
             | _ -> failwith "Invalid action"))
 
-  let choose_assasination_response t ~asassinating_player_id:_ =
+  let choose_assasination_response t ~asassinating_player_id =
     with_stdin t ~f:(fun stdin ->
-        print_endline t "Block assassination? (Y/N)";
+        print_endline t
+          [%string
+            "Player %{asassinating_player_id#Player_id} is attempting to \
+             assassinate you. Block assassination? (Y/N)"];
         match%map Reader.read_line stdin with
         | `Eof -> failwith "EOF"
         | `Ok action_str -> (
@@ -218,9 +223,12 @@ end = struct
             | [ "Y" ] -> `Block
             | _ -> failwith "Invalid action"))
 
-  let choose_steal_response t () =
+  let choose_steal_response t ~stealing_player_id =
     with_stdin t ~f:(fun stdin ->
-        print_endline t "Block steal? (C/A/N)";
+        print_endline t
+          [%string
+            "Player %{stealing_player_id#Player_id} is stealing from you. \
+             Block steal? (C/A/N)"];
         match%map Reader.read_line stdin with
         | `Eof -> failwith "EOF"
         | `Ok action_str -> (
@@ -231,6 +239,11 @@ end = struct
             | _ -> failwith "Invalid action"))
 
   let choose_foreign_aid_response t () ~cancelled_reason =
+    upon cancelled_reason (function
+        | Cancelled_reason.Other_player_responded player_id ->
+        print_endline t
+          [%string
+            "Player %{player_id#Player_id} has already blocked the foreign aid."]);
     with_stdin t ~f:(fun stdin ->
         match Deferred.is_determined cancelled_reason with
         | true -> return `Allow
@@ -260,6 +273,11 @@ end = struct
   (* TODO: implement *)
 
   let offer_challenge t acting_player_id action ~cancelled_reason =
+    (* TODO: Don't know who [action] is targeting *)
+    upon cancelled_reason (function
+        | Cancelled_reason.Other_player_responded player_id ->
+        print_endline t
+          [%string "Player %{player_id#Player_id} has challenged the action."]);
     with_stdin t ~f:(fun stdin ->
         match Deferred.is_determined cancelled_reason with
         | true -> return `No_challenge
@@ -449,14 +467,14 @@ end = struct
     | `String "Block" -> `Block
     | _ -> failwith "Invalid response"
 
-  let choose_steal_response t () =
+  let choose_steal_response t ~stealing_player_id =
     let prompt =
       [%string
-        "Player is attempting to steal from you. Respond with a json object \
-         with the key 'response' and the value being 'Allow' or 'Block'. If \
-         you choose to block, additionally provide the card you are blocking \
-         with in the key 'card' with the value being 'Ambassador' or \
-         'Captain'."]
+        "Player %{stealing_player_id#Player_id} is attempting to steal from \
+         you. Respond with a json object with the key 'response' and the value \
+         being 'Allow' or 'Block'. If you choose to block, additionally \
+         provide the card you are blocking with in the key 'card' with the \
+         value being 'Ambassador' or 'Captain'."]
     in
     let%map response = send_request t prompt in
     let action = Yojson.Basic.Util.member "response" response in
@@ -553,10 +571,10 @@ end = struct
     | Llm llm ->
         Llm_player_io.choose_foreign_aid_response llm () ~cancelled_reason
 
-  let choose_steal_response t () =
+  let choose_steal_response t ~stealing_player_id =
     match t with
-    | Cli cli -> Cli_player_io.choose_steal_response cli ()
-    | Llm llm -> Llm_player_io.choose_steal_response llm ()
+    | Cli cli -> Cli_player_io.choose_steal_response cli ~stealing_player_id
+    | Llm llm -> Llm_player_io.choose_steal_response llm ~stealing_player_id
 
   let choose_cards_to_return t card_1 card_2 _hand =
     match t with
@@ -568,13 +586,13 @@ end = struct
     | Cli cli -> Cli_player_io.reveal_card cli ()
     | Llm llm -> Llm_player_io.reveal_card llm ()
 
-  let offer_challenge t _acting_player_id _action ~cancelled_reason =
+  let offer_challenge t acting_player_id card ~cancelled_reason =
     match t with
     | Cli cli ->
-        Cli_player_io.offer_challenge cli _acting_player_id _action
+        Cli_player_io.offer_challenge cli acting_player_id card
           ~cancelled_reason
     | Llm llm ->
-        Llm_player_io.offer_challenge llm _acting_player_id _action
+        Llm_player_io.offer_challenge llm acting_player_id card
           ~cancelled_reason
 
   let notify_of_action_choice t player_id action =
@@ -781,8 +799,6 @@ let lose_influence game_state target_player_id =
             Deferred.Result.return
               ({ game_state with players = remaining_players }, hidden))
   in
-  print_s [%message "LOST INFLUENCE: " (target_player_id : Player_id.t)];
-  print_s [%sexp (new_game_state : Game_state.t)];
   let%map.Deferred.Result () =
     Game_state.players new_game_state
     |> List.map ~f:(fun player ->
@@ -994,7 +1010,8 @@ let steal game_state target_player_id =
         Game_state.get_player post_challenge_game_state target_player_id
       in
       match%bind.Deferred.Result
-        Player_io.choose_steal_response target_player.player_io ()
+        Player_io.choose_steal_response target_player.player_io
+          ~stealing_player_id:(Game_state.get_active_player game_state).id
         >>| Result.return
       with
       | `Allow ->
@@ -1025,12 +1042,6 @@ let exchange game_state =
         List.fold cards_chosen_from
           ~init:(`Both (returned_card_1, returned_card_2), [])
           ~f:(fun (remaining_to_remove_acc, hand_acc) card ->
-            print_s
-              [%message
-                (remaining_to_remove_acc
-                  : [ `Both of Card.t * Card.t | `One of Card.t | `None ])
-                  (hand_acc : Card.t list)
-                  (card : Card.t)];
             match remaining_to_remove_acc with
             | `Both (card_to_remove_1, card_to_remove_2) ->
                 if Card.equal card card_to_remove_1 then
@@ -1056,7 +1067,6 @@ let exchange game_state =
             let new_cards =
               remove_cards [ card_choice_1; card_choice_2; card_1; card_2 ]
             in
-            print_s [%sexp (new_cards : Card.t list)];
             Hand.Both
               (List.hd_exn new_cards, List.hd_exn (List.tl_exn new_cards))
       in
@@ -1082,7 +1092,6 @@ let take_turn_result game_state =
             `Repeat ())
     >>| Result.return
   in
-  print_s [%sexp (action : Action.t)];
   match (action : Action.t) with
   | Income ->
       let%map.Deferred.Result () =
