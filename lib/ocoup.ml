@@ -291,6 +291,8 @@ module Llm_player_io : sig
   (* TODO: needs other player info *)
   val create : Player_id.t -> card_1:Card.t -> card_2:Card.t -> t
 end = struct
+  let open_api_key = lazy (Sys.getenv "OPENAI_API_KEY" |> Option.value_exn)
+
   type t = {
     player_id : Player_id.t;
     hand : Hand.t;
@@ -302,7 +304,10 @@ end = struct
 
   let headers =
     Http.Header.of_list
-      [ ("Content-Type", "application/json"); ("Authorization", "Bearer TODO") ]
+      [
+        ("Content-Type", "application/json");
+        ("Authorization", "Bearer " ^ Lazy.force open_api_key);
+      ]
 
   let choose_action t =
     let open Cohttp_async in
@@ -995,53 +1000,3 @@ let run_game () =
     Deferred.repeat_until_finished game_state take_turn
   in
   print_s [%sexp (final_game_state : Game_state.t)]
-
-let make_http_request () =
-  let open Cohttp_async in
-  let headers =
-    Http.Header.of_list
-      [ ("Content-Type", "application/json"); ("Authorization", "Bearer BLAH") ]
-  in
-  let post_body =
-    let json =
-      `Assoc
-        [
-          ("model", `String "gpt-4o-mini");
-          ( "messages",
-            `List
-              [
-                `Assoc
-                  [
-                    ("role", `String "developer");
-                    ("content", `String "%{Rules.rules}");
-                  ];
-                `Assoc
-                  [
-                    ("role", `String "developer");
-                    ( "content",
-                      `String
-                        "Other players: 1, 2.Hand: Duke, Contessa. Coins: 7. \
-                         Choose action: Income | ForeignAid | Assasinate \
-                         player_id | Coup target_player_id | Tax | Steal \
-                         target_player_id | Exchange. Respond with a json \
-                         object with the key 'action' and the value being the \
-                         action you want to take. If the action requires a \
-                         target player, additionally provide the key \
-                         'target_player_id' and the value will be the the \
-                         player_id of the target player." );
-                  ];
-              ] );
-          ("response_format", `Assoc [ ("type", `String "json_object") ]);
-        ]
-    in
-    Body.of_string (Yojson.Basic.to_string json)
-  in
-  let%bind response, body =
-    Client.post ~headers
-      (Uri.of_string "https://api.openai.com/v1/chat/completions")
-      ~body:post_body
-  in
-  let%map body = Body.to_string body in
-  let code = response |> Cohttp.Response.status |> Cohttp.Code.code_of_status in
-  print_s [%sexp (code : int)];
-  print_endline body
