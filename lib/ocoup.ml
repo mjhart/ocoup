@@ -172,7 +172,7 @@ end = struct
     print_string "\027[0m";
     ()
 
-  let print_s t message =
+  let _print_s t message =
     Writer.write_sexp t.writer message;
     Async_unix.print_string (color_code t);
     print_s message;
@@ -314,7 +314,7 @@ end = struct
                 print_endline t "Invalid action";
                 `Card_1))
 
-  let offer_challenge t acting_player_id action ~cancelled_reason =
+  let offer_challenge t acting_player_id card ~cancelled_reason =
     (* TODO: Don't know who [action] is targeting *)
     upon cancelled_reason (function
         | Cancelled_reason.Other_player_responded player_id ->
@@ -324,11 +324,10 @@ end = struct
         match Deferred.is_determined cancelled_reason with
         | true -> return `No_challenge
         | false -> (
-            print_s t
-              [%message
-                "Challenge action? (Y/N)"
-                  (action : Card.t)
-                  (acting_player_id : Player_id.t)];
+            print_endline t
+              [%string
+                "Player %{acting_player_id#Player_id} is claiming \
+                 %{card#Card}. Challenge? (Y/N)"];
             match%map Reader.read_line stdin with
             | `Eof -> unexpected_eof ()
             | `Ok action_str -> (
@@ -348,9 +347,8 @@ end = struct
     print_endline t [%string "Got new card %{card#Card}"] |> return
 
   let notify_of_lost_influence t player_id card =
-    print_s t
-      [%message
-        "Player lost influence" (player_id : Player_id.t) (card : Card.t)]
+    print_endline t
+      [%string "Player %{player_id#Player_id} lost influence %{card#Card}"]
     |> return
 end
 
@@ -414,9 +412,10 @@ end = struct
   let send_request t prompt =
     let open Cohttp_async in
     Queue.enqueue t.events (Developer, prompt);
-    Queue.iter t.events ~f:(fun (role, content) ->
-        print_endline t
-          [%string "Role: %{role_to_string role} Content: %{content}"]);
+    Queue.to_list t.events |> List.tl_exn
+    |> List.iter ~f:(fun (role, content) ->
+           print_endline t
+             [%string "Role: %{role_to_string role} Content: %{content}"]);
     let messages =
       Queue.to_list t.events
       |> List.map ~f:(fun (role, content) ->
@@ -437,7 +436,6 @@ end = struct
       in
       Body.of_string (Yojson.Basic.to_string json)
     in
-    (* print_s [%sexp (post_body : Body.t)]; *)
     let%bind _response, body =
       Client.post ~headers:(Lazy.force headers)
         (Uri.of_string "https://api.openai.com/v1/chat/completions")
