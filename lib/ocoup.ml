@@ -340,13 +340,12 @@ end = struct
                     `No_challenge)))
 
   let notify_of_action_choice t player_id action =
-    print_s t
-      [%message
-        "Player chose action" (player_id : Player_id.t) (action : Action.t)]
+    print_endline t
+      [%string "Player %{player_id#Player_id} chose action %{action#Action}"]
     |> return
 
   let notify_of_new_card t card =
-    print_s t [%message "Got new card" (card : Card.t)] |> return
+    print_endline t [%string "Got new card %{card#Card}"] |> return
 
   let notify_of_lost_influence t player_id card =
     print_s t
@@ -556,8 +555,9 @@ end = struct
       [%string
         "You are exchanging cards. The cards available to you are \
          [%{cards_string}]. Choose two cards to return to the deck. Respond \
-         with a json array of size exactly 2 containing the indices of the \
-         cards you want to return. The indices are 0-indexed."]
+         with a json object with the key 'response' and the value being a json \
+         array of size exactly 2 containing the indices of the cards you want \
+         to return. The indices are 0-indexed."]
     in
     let%map response = send_request t prompt in
     let indices = Yojson.Basic.Util.member "response" response in
@@ -1198,7 +1198,15 @@ let take_turn_result game_state =
       coup game_state target_player_id
   | Tax -> take_tax game_state
   | Steal target_player_id -> steal game_state target_player_id
-  | Exchange -> exchange game_state >>| Result.return
+  | Exchange ->
+      let%bind.Deferred.Result () =
+        Game_state.players game_state
+        |> List.map ~f:(fun player ->
+               Player_io.notify_of_action_choice player.player_io
+                 active_player.id action)
+        |> Deferred.all_unit >>| Result.return
+      in
+      exchange game_state >>| Result.return
 
 let take_turn game_state =
   print_newline ();
@@ -1213,4 +1221,4 @@ let run_game () =
   let%map final_game_state =
     Deferred.repeat_until_finished game_state take_turn
   in
-  print_s [%sexp (final_game_state : Game_state.t)]
+  print_s [%message "Game over" (final_game_state : Game_state.t)]
