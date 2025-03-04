@@ -627,6 +627,10 @@ module Game_state = struct
   let get_active_player t = List.hd_exn t.players
   let _get_active_player_id t = get_active_player t |> Player.id
 
+  let player_in_game t id =
+    List.find t.players ~f:(fun player -> Player_id.equal id player.id)
+    |> Option.is_some
+
   let to_string_pretty t =
     let sorted_players =
       List.sort t.players ~compare:(fun a b -> Player_id.compare a.id b.id)
@@ -914,7 +918,12 @@ let assassinate game_state active_player_id target_player_id =
             handle_challenge post_challenge_game_state target_player_id Contessa
           with
           | `Successfully_challenged post_second_challenge_game_state ->
-              lose_influence post_second_challenge_game_state target_player_id
+              if
+                Game_state.player_in_game post_second_challenge_game_state
+                  target_player_id
+              then
+                lose_influence post_second_challenge_game_state target_player_id
+              else Deferred.Result.return post_second_challenge_game_state
           | `No_challenge post_second_challenge_game_state
           | `Failed_challenge post_second_challenge_game_state ->
               Deferred.Result.return post_second_challenge_game_state))
