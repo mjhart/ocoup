@@ -355,14 +355,25 @@ end
 module Llm_player_io : sig
   include Player_io_S
 
+  val gpt_4o : string
+  val gpt_4o_mini : string
+  (* val o1_mini : string
+  val o3_mini : string *)
+
   val create :
     Player_id.t ->
     card_1:Card.t ->
     card_2:Card.t ->
     other_players:Player_id.t list ->
+    model:string ->
     t Deferred.t
 end = struct
   type role = Developer | Assistant
+
+  let gpt_4o = "gpt-4o"
+  let gpt_4o_mini = "gpt-4o-mini"
+  (* let o1_mini = "o1-mini"
+  let o3_mini = "o3-mini" *)
 
   let role_to_string = function
     | Developer -> "developer"
@@ -372,9 +383,10 @@ end = struct
     events : (role * string) Queue.t;
     player_id : Player_id.t;
     writer : Writer.t;
+    model : string;
   }
 
-  let create player_id ~card_1 ~card_2 ~other_players =
+  let create player_id ~card_1 ~card_2 ~other_players ~model =
     let events = Queue.create () in
     Queue.enqueue events (Developer, Rules.rules);
     let other_players_string =
@@ -393,7 +405,7 @@ end = struct
     let%map writer =
       Writer.open_file [%string "player_%{player_id#Player_id}.txt"]
     in
-    { events; player_id; writer }
+    { events; player_id; writer; model }
 
   let print_endline t message =
     ignore t.player_id;
@@ -429,7 +441,7 @@ end = struct
       let json =
         `Assoc
           [
-            ("model", `String "gpt-4o-mini");
+            ("model", `String t.model);
             ("messages", `List messages);
             ("response_format", `Assoc [ ("type", `String "json_object") ]);
           ]
@@ -798,22 +810,29 @@ module Game_state = struct
   let num_players = 3
 
   let create_player id card_1 card_2 =
-    if Player_id.to_int id = 1 || Player_id.to_int id = 2 then
-      let other_players =
-        List.range 0 (num_players - 1)
-        |> List.filter ~f:(fun i -> i <> Player_id.to_int id)
-        |> List.map ~f:Player_id.of_int
-      in
-      let%map llm_player_io =
-        Llm_player_io.create id ~card_1 ~card_2 ~other_players
-      in
-      let player_io = Player_io.Llm llm_player_io in
+    match Player_id.to_int id with
+    | (1 | 2 | 3) as i ->
+        let other_players =
+          List.range 0 (num_players - 1)
+          |> List.filter ~f:(fun i -> i <> Player_id.to_int id)
+          |> List.map ~f:Player_id.of_int
+        in
+        let model =
+          match i with
+          | 1 -> Llm_player_io.gpt_4o_mini
+          | 2 -> Llm_player_io.gpt_4o_mini
+          | _ -> Llm_player_io.gpt_4o
+        in
+        let%map llm_player_io =
+          Llm_player_io.create id ~card_1 ~card_2 ~other_players ~model
+        in
+        let player_io = Player_io.Llm llm_player_io in
 
-      { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
-    else
-      let%map cli_player_io = Cli_player_io.cli_player id in
-      let player_io = Player_io.Cli cli_player_io in
-      { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
+        { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
+    | _ ->
+        let%map cli_player_io = Cli_player_io.cli_player id in
+        let player_io = Player_io.Cli cli_player_io in
+        { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
 
   let init () =
     let deck =
