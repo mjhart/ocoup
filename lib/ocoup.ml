@@ -95,33 +95,85 @@ module Cancelled_reason = struct
   type t = Other_player_responded of Player_id.t [@@deriving sexp]
 end
 
+module Visible_game_state = struct
+  module Other_player = struct
+    type t = {
+      player_id : Player_id.t;
+      visible_card : Card.t option;
+      coins : int;
+    }
+    [@@deriving sexp]
+  end
+
+  type t = { hand : Hand.t; coins : int; other_players : Other_player.t list }
+  [@@deriving sexp]
+
+  let to_string_pretty t =
+    let cards =
+      match t.hand with
+      | Hand.Both (card_1, card_2) ->
+          [%string "%{card_1#Card} (hidden) %{card_2#Card} (hidden)"]
+      | Hand.One { hidden; revealed } ->
+          [%string "%{hidden#Card} (hidden) %{revealed#Card} (revealed)"]
+    in
+    let coins = [%string "You - Coins: %{t.coins#Int} Hand: %{cards}"] in
+    let other_players =
+      List.map t.other_players ~f:(fun other_player ->
+          let revealed_string =
+            match other_player.visible_card with
+            | Some card -> [%string " Revealed: %{card#Card}"]
+            | None -> ""
+          in
+          [%string
+            "Player %{other_player.player_id#Player_id} - Coins: \
+             %{other_player.coins#Int} %{revealed_string}"])
+    in
+    String.concat_lines (coins :: other_players)
+end
+
 module type Player_io_S = sig
   type t
 
-  val choose_action : t -> Action.t Deferred.t
+  val choose_action :
+    t -> visible_game_state:Visible_game_state.t -> Action.t Deferred.t
 
   val choose_assasination_response :
-    t -> asassinating_player_id:Player_id.t -> [ `Allow | `Block ] Deferred.t
+    t ->
+    visible_game_state:Visible_game_state.t ->
+    asassinating_player_id:Player_id.t ->
+    [ `Allow | `Block ] Deferred.t
 
   val choose_foreign_aid_response :
     t ->
+    visible_game_state:Visible_game_state.t ->
     unit ->
     cancelled_reason:Cancelled_reason.t Deferred.t ->
     [ `Allow | `Block ] Deferred.t
 
   val choose_steal_response :
     t ->
+    visible_game_state:Visible_game_state.t ->
     stealing_player_id:Player_id.t ->
     [ `Allow | `Block of [ `Captain | `Ambassador ] ] Deferred.t
 
   val choose_cards_to_return :
-    t -> Card.t -> Card.t -> Hand.t -> (Card.t * Card.t) Deferred.t
+    t ->
+    visible_game_state:Visible_game_state.t ->
+    Card.t ->
+    Card.t ->
+    Hand.t ->
+    (Card.t * Card.t) Deferred.t
 
   val reveal_card :
-    t -> card_1:Card.t -> card_2:Card.t -> [ `Card_1 | `Card_2 ] Deferred.t
+    t ->
+    visible_game_state:Visible_game_state.t ->
+    card_1:Card.t ->
+    card_2:Card.t ->
+    [ `Card_1 | `Card_2 ] Deferred.t
 
   val offer_challenge :
     t ->
+    visible_game_state:Visible_game_state.t ->
     Player_id.t ->
     Card.t ->
     cancelled_reason:Cancelled_reason.t Deferred.t ->
@@ -130,15 +182,6 @@ module type Player_io_S = sig
   val notify_of_action_choice : t -> Player_id.t -> Action.t -> unit Deferred.t
   val notify_of_lost_influence : t -> Player_id.t -> Card.t -> unit Deferred.t
   val notify_of_new_card : t -> Card.t -> unit Deferred.t
-  (* 
-          what to players have to learn about:
-          - their initial cards
-          - resolutions
-            - steal
-          - non-challengable or blockable actions
-            - coup
-          - game end
-          *)
 end
 
 module Cli_player_io : sig
@@ -185,8 +228,15 @@ end = struct
           (sprintf "You are player %d" (Player_id.to_int t.player_id));
         f (Lazy.force Reader.stdin))
 
-  let choose_action t =
+  let print_visible_game_state t visible_game_state =
+    let visible_game_state_string =
+      Visible_game_state.to_string_pretty visible_game_state
+    in
+    print_endline t visible_game_state_string
+
+  let choose_action t ~visible_game_state =
     with_stdin t ~f:(fun stdin ->
+        print_visible_game_state t visible_game_state;
         print_endline t "Choose action (I/FA/A n/C n/T/S n/E)";
         match%bind Reader.read_line stdin with
         | `Eof -> unexpected_eof ()
@@ -206,8 +256,10 @@ end = struct
                 print_endline t "Invalid action";
                 return Action.Income))
 
-  let choose_assasination_response t ~asassinating_player_id =
+  let choose_assasination_response t ~visible_game_state ~asassinating_player_id
+      =
     with_stdin t ~f:(fun stdin ->
+        print_visible_game_state t visible_game_state;
         print_endline t
           [%string
             "Player %{asassinating_player_id#Player_id} is attempting to \
@@ -222,8 +274,9 @@ end = struct
                 print_endline t "Invalid action";
                 `Allow))
 
-  let choose_steal_response t ~stealing_player_id =
+  let choose_steal_response t ~visible_game_state ~stealing_player_id =
     with_stdin t ~f:(fun stdin ->
+        print_visible_game_state t visible_game_state;
         print_endline t
           [%string
             "Player %{stealing_player_id#Player_id} is stealing from you. \
@@ -239,7 +292,7 @@ end = struct
                 print_endline t "Invalid action";
                 `Allow))
 
-  let choose_foreign_aid_response t () ~cancelled_reason =
+  let choose_foreign_aid_response t ~visible_game_state () ~cancelled_reason =
     upon cancelled_reason (function
         | Cancelled_reason.Other_player_responded player_id ->
         print_endline t
@@ -249,6 +302,7 @@ end = struct
         match Deferred.is_determined cancelled_reason with
         | true -> return `Allow
         | false -> (
+            print_visible_game_state t visible_game_state;
             print_endline t "Block foreign aid? (Y/N)";
             match%map Reader.read_line stdin with
             | `Eof -> unexpected_eof ()
@@ -260,7 +314,7 @@ end = struct
                     print_endline t "Invalid action";
                     `Allow)))
 
-  let choose_cards_to_return t card_1 card_2 hand =
+  let choose_cards_to_return t ~visible_game_state card_1 card_2 hand =
     let cards =
       let cards_in_hand =
         match hand with
@@ -275,6 +329,7 @@ end = struct
       |> String.concat ~sep:" "
     in
     with_stdin t ~f:(fun stdin ->
+        print_visible_game_state t visible_game_state;
         print_endline t
           [%string
             "Cards to choose from:\n\
@@ -292,13 +347,14 @@ end = struct
                 print_endline t "Invalid action";
                 (card_1, card_2)))
 
-  let reveal_card t ~card_1 ~card_2 =
+  let reveal_card t ~visible_game_state ~card_1 ~card_2 =
     let cards_string =
       [ card_1; card_2 ]
       |> List.mapi ~f:(fun i card -> [%string "%{i#Int}: %{card#Card}"])
       |> String.concat ~sep:"\n"
     in
     with_stdin t ~f:(fun stdin ->
+        print_visible_game_state t visible_game_state;
         print_endline t
           [%string
             "Cards to choose from:\n\
@@ -314,7 +370,8 @@ end = struct
                 print_endline t "Invalid action";
                 `Card_1))
 
-  let offer_challenge t acting_player_id card ~cancelled_reason =
+  let offer_challenge t ~visible_game_state acting_player_id card
+      ~cancelled_reason =
     (* TODO: Don't know who [action] is targeting *)
     upon cancelled_reason (function
         | Cancelled_reason.Other_player_responded player_id ->
@@ -324,6 +381,7 @@ end = struct
         match Deferred.is_determined cancelled_reason with
         | true -> return `No_challenge
         | false -> (
+            print_visible_game_state t visible_game_state;
             print_endline t
               [%string
                 "Player %{acting_player_id#Player_id} is claiming \
@@ -468,14 +526,20 @@ end = struct
     Queue.enqueue t.events (Assistant, content_string);
     Yojson.Basic.from_string content_string
 
-  let choose_action t =
+  let choose_action t ~visible_game_state =
+    let visible_game_state_string =
+      Visible_game_state.to_string_pretty visible_game_state
+    in
     let prompt =
-      "Choose action: Income | ForeignAid | Assassinate player_id | Coup \
-       target_player_id | Tax | Steal target_player_id | Exchange. Respond \
-       with a json object with the key 'action' and the value being the action \
-       you want to take. If the action requires a target player, additionally \
-       provide the key 'target_player_id' and the value will be the the \
-       player_id of the target player."
+      [%string
+        "%{visible_game_state_string}\n\
+         Choose action: Income | ForeignAid | Assassinate player_id | Coup \
+         target_player_id | Tax | Steal target_player_id | Exchange. Respond \
+         with a json object with the key 'action' and the value being the \
+         action you want to take. If the action requires a target player, \
+         additionally provide the key 'target_player_id' and the value will be \
+         the the player_id of the target player. Provide the reasoning behind \
+         your choice as a string in the key 'reasoning'."]
     in
 
     let%map response = send_request t prompt in
@@ -498,12 +562,18 @@ end = struct
         print_endline t "Invalid action";
         Action.Income
 
-  let choose_assasination_response t ~asassinating_player_id =
+  let choose_assasination_response t ~visible_game_state ~asassinating_player_id
+      =
+    let visible_game_state_string =
+      Visible_game_state.to_string_pretty visible_game_state
+    in
     let prompt =
       [%string
-        "You are being assasinated by player \
+        "%{visible_game_state_string}\n\
+         You are being assasinated by player \
          %{asassinating_player_id#Player_id}. Respond with a json object with \
-         the key 'response' and the value being 'Allow' or 'Block'."]
+         the key 'response' and the value being 'Allow' or 'Block'. Provide \
+         the reasoning behind your choice as a string in the key 'reasoning'."]
     in
     let%map response = send_request t prompt in
     let response = Yojson.Basic.Util.member "response" response in
@@ -514,11 +584,17 @@ end = struct
         print_endline t "Invalid response";
         `Allow
 
-  let choose_foreign_aid_response t () ~cancelled_reason:_ =
+  let choose_foreign_aid_response t ~visible_game_state () ~cancelled_reason:_ =
+    let visible_game_state_string =
+      Visible_game_state.to_string_pretty visible_game_state
+    in
     let prompt =
       [%string
-        "Player is attempting to take foreign aid. Respond with a json object \
-         with the key 'response' and the value being 'Allow' or 'Block'."]
+        "%{visible_game_state_string}\n\
+         Player is attempting to take foreign aid. Respond with a json object \
+         with the key 'response' and the value being 'Allow' or 'Block'. \
+         Provide the reasoning behind your choice as a string in the key \
+         'reasoning'."]
     in
     let%map response = send_request t prompt in
     let response = Yojson.Basic.Util.member "response" response in
@@ -529,14 +605,19 @@ end = struct
         print_endline t "Invalid response";
         `Allow
 
-  let choose_steal_response t ~stealing_player_id =
+  let choose_steal_response t ~visible_game_state ~stealing_player_id =
+    let visible_game_state_string =
+      Visible_game_state.to_string_pretty visible_game_state
+    in
     let prompt =
       [%string
-        "Player %{stealing_player_id#Player_id} is attempting to steal from \
+        "%{visible_game_state_string}\n\
+         Player %{stealing_player_id#Player_id} is attempting to steal from \
          you. Respond with a json object with the key 'response' and the value \
          being 'Allow' or 'Block'. If you choose to block, additionally \
          provide the card you are blocking with in the key 'card' with the \
-         value being 'Ambassador' or 'Captain'."]
+         value being 'Ambassador' or 'Captain'. Provide the reasoning behind \
+         your choice as a string in the key 'reasoning'."]
     in
     let%map response = send_request t prompt in
     let action = Yojson.Basic.Util.member "response" response in
@@ -549,7 +630,10 @@ end = struct
         print_endline t "Invalid response";
         `Allow
 
-  let choose_cards_to_return t card_1 card_2 hand =
+  let choose_cards_to_return t ~visible_game_state card_1 card_2 hand =
+    let visible_game_state_string =
+      Visible_game_state.to_string_pretty visible_game_state
+    in
     let cards =
       let cards_in_hand =
         match hand with
@@ -563,11 +647,13 @@ end = struct
     in
     let prompt =
       [%string
-        "You are exchanging cards. The cards available to you are \
+        "%{visible_game_state_string}\n\
+         You are exchanging cards. The cards available to you are \
          [%{cards_string}]. Choose two cards to return to the deck. Respond \
          with a json object with the key 'response' and the value being a json \
          array of size exactly 2 containing the indices of the cards you want \
-         to return. The indices are 0-indexed."]
+         to return. The indices are 0-indexed. Provide the reasoning behind \
+         your choice as a string in the key 'reasoning'."]
     in
     let%map response = send_request t prompt in
     let indices = Yojson.Basic.Util.member "response" response in
@@ -578,30 +664,44 @@ end = struct
         print_endline t "Invalid response";
         (card_1, card_2)
 
-  let reveal_card t ~card_1 ~card_2 =
+  let reveal_card t ~visible_game_state ~card_1 ~card_2 =
+    let visible_game_state_string =
+      Visible_game_state.to_string_pretty visible_game_state
+    in
     let cards_string =
-      [ card_1; card_2 ] |> List.map ~f:Card.to_string |> String.concat
+      [ card_1; card_2 ] |> List.map ~f:Card.to_string |> String.concat ~sep:" "
     in
     let prompt =
       [%string
-        "You are revealing a card. The cards available to you are \
-         %{cards_string}. Which card do you want to reveal? (1/2)"]
+        "%{visible_game_state_string}\n\
+         You have lost influence and must reveal a card. The cards available \
+         to you are %{cards_string}. Which card do you want to reveal? Respond \
+         with a json object with the key 'response' and the value being the \
+         index of the card you want to reveal. The indices are 0-indexed. \
+         Provide the reasoning behind your choice as a string in the key \
+         'reasoning'."]
     in
     let%map response = send_request t prompt in
     let response = Yojson.Basic.Util.member "response" response in
     match response with
-    | `String "1" -> `Card_1
-    | `String "2" -> `Card_2
+    | `String "0" -> `Card_1
+    | `String "1" -> `Card_2
     | _ ->
         print_endline t "Invalid response";
         `Card_1
 
-  let offer_challenge t acting_player_id card ~cancelled_reason:_ =
+  let offer_challenge t ~visible_game_state acting_player_id card
+      ~cancelled_reason:_ =
+    let visible_game_state_string =
+      Visible_game_state.to_string_pretty visible_game_state
+    in
     let prompt =
       [%string
-        "Player %{acting_player_id#Player_id} is claiming card %{card#Card}. \
+        "%{visible_game_state_string}\n\
+         Player %{acting_player_id#Player_id} is claiming card %{card#Card}. \
          Respond with a json object with the key 'response' and the value \
-         being 'No_challenge' or 'Challenge'."]
+         being 'No_challenge' or 'Challenge'. Provide the reasoning behind \
+         your choice as a string in the key 'reasoning'."]
     in
     let%map response = send_request t prompt in
     let response = Yojson.Basic.Util.member "response" response in
@@ -639,48 +739,64 @@ module Player_io : sig
 end = struct
   type t = Cli of Cli_player_io.t | Llm of Llm_player_io.t
 
-  let choose_action t =
+  let choose_action t ~visible_game_state =
     match t with
-    | Cli cli -> Cli_player_io.choose_action cli
-    | Llm llm -> Llm_player_io.choose_action llm
+    | Cli cli -> Cli_player_io.choose_action cli ~visible_game_state
+    | Llm llm -> Llm_player_io.choose_action llm ~visible_game_state
 
-  let choose_assasination_response t ~asassinating_player_id =
+  let choose_assasination_response t ~visible_game_state ~asassinating_player_id
+      =
     match t with
     | Cli cli ->
-        Cli_player_io.choose_assasination_response cli ~asassinating_player_id
+        Cli_player_io.choose_assasination_response cli ~visible_game_state
+          ~asassinating_player_id
     | Llm llm ->
-        Llm_player_io.choose_assasination_response llm ~asassinating_player_id
+        Llm_player_io.choose_assasination_response llm ~visible_game_state
+          ~asassinating_player_id
 
-  let choose_foreign_aid_response t () ~cancelled_reason =
+  let choose_foreign_aid_response t ~visible_game_state () ~cancelled_reason =
     match t with
     | Cli cli ->
-        Cli_player_io.choose_foreign_aid_response cli () ~cancelled_reason
-    | Llm llm ->
-        Llm_player_io.choose_foreign_aid_response llm () ~cancelled_reason
-
-  let choose_steal_response t ~stealing_player_id =
-    match t with
-    | Cli cli -> Cli_player_io.choose_steal_response cli ~stealing_player_id
-    | Llm llm -> Llm_player_io.choose_steal_response llm ~stealing_player_id
-
-  let choose_cards_to_return t card_1 card_2 _hand =
-    match t with
-    | Cli cli -> Cli_player_io.choose_cards_to_return cli card_1 card_2 _hand
-    | Llm llm -> Llm_player_io.choose_cards_to_return llm card_1 card_2 _hand
-
-  let reveal_card t ~card_1 ~card_2 =
-    match t with
-    | Cli cli -> Cli_player_io.reveal_card cli ~card_1 ~card_2
-    | Llm llm -> Llm_player_io.reveal_card llm ~card_1 ~card_2
-
-  let offer_challenge t acting_player_id card ~cancelled_reason =
-    match t with
-    | Cli cli ->
-        Cli_player_io.offer_challenge cli acting_player_id card
+        Cli_player_io.choose_foreign_aid_response cli ~visible_game_state ()
           ~cancelled_reason
     | Llm llm ->
-        Llm_player_io.offer_challenge llm acting_player_id card
+        Llm_player_io.choose_foreign_aid_response llm ~visible_game_state ()
           ~cancelled_reason
+
+  let choose_steal_response t ~visible_game_state ~stealing_player_id =
+    match t with
+    | Cli cli ->
+        Cli_player_io.choose_steal_response cli ~visible_game_state
+          ~stealing_player_id
+    | Llm llm ->
+        Llm_player_io.choose_steal_response llm ~visible_game_state
+          ~stealing_player_id
+
+  let choose_cards_to_return t ~visible_game_state card_1 card_2 hand =
+    match t with
+    | Cli cli ->
+        Cli_player_io.choose_cards_to_return cli ~visible_game_state card_1
+          card_2 hand
+    | Llm llm ->
+        Llm_player_io.choose_cards_to_return llm ~visible_game_state card_1
+          card_2 hand
+
+  let reveal_card t ~visible_game_state ~card_1 ~card_2 =
+    match t with
+    | Cli cli ->
+        Cli_player_io.reveal_card cli ~visible_game_state ~card_1 ~card_2
+    | Llm llm ->
+        Llm_player_io.reveal_card llm ~visible_game_state ~card_1 ~card_2
+
+  let offer_challenge t ~visible_game_state acting_player_id card
+      ~cancelled_reason =
+    match t with
+    | Cli cli ->
+        Cli_player_io.offer_challenge cli ~visible_game_state acting_player_id
+          card ~cancelled_reason
+    | Llm llm ->
+        Llm_player_io.offer_challenge llm ~visible_game_state acting_player_id
+          card ~cancelled_reason
 
   let notify_of_action_choice t player_id action =
     match t with
@@ -802,6 +918,28 @@ module Game_state = struct
     let player = get_player_exn t active_player_id in
     Action.valid_actions player.coins
 
+  let to_visible_game_state t player_id =
+    let player = get_player_exn t player_id in
+    let other_players =
+      List.filter t.players ~f:(fun p -> not (Player_id.equal p.id player_id))
+      |> List.map ~f:(fun p ->
+             let visible_card =
+               match p.hand with
+               | Hand.Both _ -> None
+               | Hand.One { hidden = _; revealed } -> Some revealed
+             in
+             {
+               Visible_game_state.Other_player.player_id = p.id;
+               visible_card;
+               coins = p.coins;
+             })
+    in
+    {
+      Visible_game_state.hand = player.hand;
+      coins = player.coins;
+      other_players;
+    }
+
   let sorted_deck =
     [ 1; 2; 3; 4 ]
     |> List.concat_map ~f:(fun _i ->
@@ -873,7 +1011,10 @@ let lose_influence game_state target_player_id =
     match player.hand with
     | Hand.Both (card_1, card_2) ->
         let%map.Deferred.Result revealed_card_choice =
-          Player_io.reveal_card player.player_io ~card_1 ~card_2
+          Player_io.reveal_card player.player_io
+            ~visible_game_state:
+              (Game_state.to_visible_game_state game_state player.id)
+            ~card_1 ~card_2
           >>| Result.return
         in
         let new_hand, revealed_card =
@@ -972,8 +1113,10 @@ let handle_challenge game_state acting_player_id (action : Card.t) =
   let%bind challenge_result =
     handle_response_race game_state acting_player_id
       ~f:(fun player cancelled_reason ->
-        Player_io.offer_challenge player.player_io acting_player_id action
-          ~cancelled_reason
+        Player_io.offer_challenge player.player_io
+          ~visible_game_state:
+            (Game_state.to_visible_game_state game_state player.id)
+          acting_player_id action ~cancelled_reason
         >>| function
         | `No_challenge -> `Allow
         | `Challenge -> `Block)
@@ -1017,6 +1160,8 @@ let assassinate game_state active_player_id target_player_id =
       | Some target_player -> (
           match%bind.Deferred.Result
             Player_io.choose_assasination_response target_player.player_io
+              ~visible_game_state:
+                (Game_state.to_visible_game_state game_state target_player_id)
               ~asassinating_player_id:active_player_id
             >>| Result.return
           with
@@ -1045,8 +1190,10 @@ let take_foreign_aid game_state =
   match%bind
     handle_response_race game_state (Game_state.get_active_player game_state).id
       ~f:(fun player cancelled_reason ->
-        Player_io.choose_foreign_aid_response player.player_io ()
-          ~cancelled_reason
+        Player_io.choose_foreign_aid_response player.player_io
+          ~visible_game_state:
+            (Game_state.to_visible_game_state game_state player.id)
+          () ~cancelled_reason
         >>| function
         | `Allow -> `Allow
         | `Block -> `Block)
@@ -1105,6 +1252,8 @@ let steal game_state target_player_id =
       | Some target_player -> (
           match%bind.Deferred.Result
             Player_io.choose_steal_response target_player.player_io
+              ~visible_game_state:
+                (Game_state.to_visible_game_state game_state target_player.id)
               ~stealing_player_id:(Game_state.get_active_player game_state).id
             >>| Result.return
           with
@@ -1134,8 +1283,10 @@ let exchange game_state =
   match Game_state.deck game_state with
   | card_choice_1 :: card_choice_2 :: rest ->
       let%map.Deferred returned_card_1, returned_card_2 =
-        Player_io.choose_cards_to_return active_player.player_io card_choice_1
-          card_choice_2 active_player.hand
+        Player_io.choose_cards_to_return active_player.player_io
+          ~visible_game_state:
+            (Game_state.to_visible_game_state game_state active_player.id)
+          card_choice_1 card_choice_2 active_player.hand
       in
       let remove_cards cards_chosen_from =
         List.fold cards_chosen_from
@@ -1183,7 +1334,11 @@ let take_turn_result game_state =
   let active_player = Game_state.get_active_player game_state in
   let%bind.Deferred.Result action =
     Deferred.repeat_until_finished () (fun () ->
-        let%map action = Player_io.choose_action active_player.player_io in
+        let%map action =
+          Player_io.choose_action active_player.player_io
+            ~visible_game_state:
+              (Game_state.to_visible_game_state game_state active_player.id)
+        in
         match Game_state.is_valid_action game_state active_player.id action with
         | true -> `Finished action
         | false ->
@@ -1228,7 +1383,8 @@ let take_turn_result game_state =
 let take_turn game_state =
   print_newline ();
   (* print_s [%sexp (game_state : Game_state.t)]; *)
-  print_endline (Game_state.to_string_pretty game_state);
+  (* print_endline (Game_state.to_string_pretty game_state); *)
+  let _ = Game_state.to_string_pretty in
   match%bind take_turn_result game_state with
   | Ok game_state' -> return (`Repeat (Game_state.end_turn game_state'))
   | Error final_game_state -> return (`Finished final_game_state)
