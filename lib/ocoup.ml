@@ -5,6 +5,7 @@ open! Async
    - timeout for player action
    - validate responses from player
    - give more state to players
+   - don't know who callenged you when you lose influence
  *)
 
 (* The characters (and cards) available in the game *)
@@ -415,8 +416,9 @@ module Llm_player_io : sig
 
   val gpt_4o : string
   val gpt_4o_mini : string
-  (* val o1_mini : string
-  val o3_mini : string *)
+
+  (* val o1_mini : string *)
+  val o3_mini : string
 
   val create :
     Player_id.t ->
@@ -426,16 +428,18 @@ module Llm_player_io : sig
     model:string ->
     t Deferred.t
 end = struct
-  type role = Developer | Assistant
+  type role = Developer | Assistant | User
 
   let gpt_4o = "gpt-4o"
   let gpt_4o_mini = "gpt-4o-mini"
-  (* let o1_mini = "o1-mini"
-  let o3_mini = "o3-mini" *)
+
+  (* let o1_mini = "o1-mini" *)
+  let o3_mini = "o3-mini"
 
   let role_to_string = function
     | Developer -> "developer"
     | Assistant -> "assistant"
+    | User -> "user"
 
   type t = {
     events : (role * string) Queue.t;
@@ -481,7 +485,7 @@ end = struct
 
   let send_request t prompt =
     let open Cohttp_async in
-    Queue.enqueue t.events (Developer, prompt);
+    Queue.enqueue t.events (User, prompt);
     Queue.to_list t.events |> List.tl_exn
     |> List.iter ~f:(fun (role, content) ->
            print_endline t
@@ -535,11 +539,11 @@ end = struct
         "%{visible_game_state_string}\n\
          Choose action: Income | ForeignAid | Assassinate player_id | Coup \
          target_player_id | Tax | Steal target_player_id | Exchange. Respond \
-         with a json object with the key 'action' and the value being the \
+         with a json object with the key 'reasoning' containing the reasoning \
+         behind your choice as a string, and the key 'action' containing the \
          action you want to take. If the action requires a target player, \
          additionally provide the key 'target_player_id' and the value will be \
-         the the player_id of the target player. Provide the reasoning behind \
-         your choice as a string in the key 'reasoning'."]
+         the the player_id of the target player."]
     in
 
     let%map response = send_request t prompt in
@@ -572,8 +576,8 @@ end = struct
         "%{visible_game_state_string}\n\
          You are being assasinated by player \
          %{asassinating_player_id#Player_id}. Respond with a json object with \
-         the key 'response' and the value being 'Allow' or 'Block'. Provide \
-         the reasoning behind your choice as a string in the key 'reasoning'."]
+         the key 'reasoning' containing the reasoning behind your choice as a \
+         string, and the key 'response' containing 'Allow' or 'Block'."]
     in
     let%map response = send_request t prompt in
     let response = Yojson.Basic.Util.member "response" response in
@@ -613,11 +617,11 @@ end = struct
       [%string
         "%{visible_game_state_string}\n\
          Player %{stealing_player_id#Player_id} is attempting to steal from \
-         you. Respond with a json object with the key 'response' and the value \
-         being 'Allow' or 'Block'. If you choose to block, additionally \
+         you. Respond with a json object with the key 'reasoning' containing \
+         the reasoning behind your choice as a string, and the key 'response' \
+         containing 'Allow' or 'Block'. If you choose to block, additionally \
          provide the card you are blocking with in the key 'card' with the \
-         value being 'Ambassador' or 'Captain'. Provide the reasoning behind \
-         your choice as a string in the key 'reasoning'."]
+         value being 'Ambassador' or 'Captain'."]
     in
     let%map response = send_request t prompt in
     let action = Yojson.Basic.Util.member "response" response in
@@ -650,10 +654,10 @@ end = struct
         "%{visible_game_state_string}\n\
          You are exchanging cards. The cards available to you are \
          [%{cards_string}]. Choose two cards to return to the deck. Respond \
-         with a json object with the key 'response' and the value being a json \
-         array of size exactly 2 containing the indices of the cards you want \
-         to return. The indices are 0-indexed. Provide the reasoning behind \
-         your choice as a string in the key 'reasoning'."]
+         with a json object with the key 'reasoning' containing the reasoning \
+         behind your choice as a string, and the key 'response' containing a \
+         json array of size exactly 2 containing the indices of the cards you \
+         want to return. The indices are 0-indexed."]
     in
     let%map response = send_request t prompt in
     let indices = Yojson.Basic.Util.member "response" response in
@@ -676,10 +680,9 @@ end = struct
         "%{visible_game_state_string}\n\
          You have lost influence and must reveal a card. The cards available \
          to you are %{cards_string}. Which card do you want to reveal? Respond \
-         with a json object with the key 'response' and the value being the \
-         index of the card you want to reveal. The indices are 0-indexed. \
-         Provide the reasoning behind your choice as a string in the key \
-         'reasoning'."]
+         with a json object with the key 'reasoning' containing the reasoning \
+         behind your choice as a string, and the key 'response' containing the \
+         index of the card you want to reveal. The indices are 0-indexed."]
     in
     let%map response = send_request t prompt in
     let response = Yojson.Basic.Util.member "response" response in
@@ -699,9 +702,9 @@ end = struct
       [%string
         "%{visible_game_state_string}\n\
          Player %{acting_player_id#Player_id} is claiming card %{card#Card}. \
-         Respond with a json object with the key 'response' and the value \
-         being 'No_challenge' or 'Challenge'. Provide the reasoning behind \
-         your choice as a string in the key 'reasoning'."]
+         Respond with a json object with the key 'reasoning' containing the \
+         reasoning behind your choice as a string, and the key 'response' \
+         containing 'No_challenge' or 'Challenge'."]
     in
     let%map response = send_request t prompt in
     let response = Yojson.Basic.Util.member "response" response in
@@ -958,7 +961,7 @@ module Game_state = struct
         let model =
           match i with
           | 1 -> Llm_player_io.gpt_4o_mini
-          | 2 -> Llm_player_io.gpt_4o_mini
+          | 2 -> Llm_player_io.o3_mini
           | _ -> Llm_player_io.gpt_4o
         in
         let%map llm_player_io =
