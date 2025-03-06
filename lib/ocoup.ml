@@ -35,54 +35,92 @@ end = struct
   let to_string = Int.to_string
 end
 
+type non_challengable_actions = [ `Income | `Foreign_aid | `Coup of Player_id.t ]
+
+type challengable_actions =
+  [ `Tax | `Assassinate of Player_id.t | `Steal of Player_id.t | `Exchange ]
+
+type challengable_responses =
+  [ `Block_assassination
+  | `Block_steal of [ `Captain | `Ambassador ]
+  | `Block_foreign_aid ]
+
+module Challengable = struct
+  type t = [ challengable_actions | challengable_responses ]
+
+  let required_card = function
+    | `Tax -> Card.Duke
+    | `Assassinate _ -> Assassin
+    | `Steal _ -> Captain
+    | `Exchange -> Ambassador
+    | `Block_assassination -> Contessa
+    | `Block_steal `Captain -> Captain
+    | `Block_steal `Ambassador -> Ambassador
+    | `Block_foreign_aid -> Duke
+
+  let to_string = function
+    | `Tax -> "Tax"
+    | `Assassinate target_player_id ->
+        sprintf "Assassinate %d" (Player_id.to_int target_player_id)
+    | `Steal target_player_id ->
+        sprintf "Steal from %d" (Player_id.to_int target_player_id)
+    | `Exchange -> "Exchange"
+    | `Block_assassination -> "Block assassination"
+    | `Block_steal `Captain -> "Block steal with Captain"
+    | `Block_steal `Ambassador -> "Block steal with Ambassador"
+    | `Block_foreign_aid -> "Block foreign aid"
+end
+
 (* Actions a player may choose. Some actions have a target (represented by a player id). *)
 module Action = struct
-  type t =
-    | Income (* take 1 coin from the Treasury *)
-    | ForeignAid (* take 2 coins (subject to blocking) *)
-    | Coup of
-        Player_id.t (* pay 7 coins to launch a coup against target player *)
-    | Tax (* Duke: take 3 coins from the Treasury *)
-    | Assassinate of
-        Player_id.t (* Assassin: pay 3 coins to assassinate target *)
-    | Steal of Player_id.t (* Captain: steal 1 or 2 coins from target *)
-    | Exchange (* Ambassador: exchange cards with the Court deck *)
-  [@@deriving sexp]
+  (* type t =
+    [ `Income (* take 1 coin from the Treasury *)
+    | `Foreign_aid (* take 2 coins (subject to blocking) *)
+    | `Coup of
+      Player_id.t (* pay 7 coins to launch a coup against target player *)
+    | `Tax (* Duke: take 3 coins from the Treasury *)
+    | `Assassinate of
+      Player_id.t (* Assassin: pay 3 coins to assassinate target *)
+    | `Steal of Player_id.t (* Captain: steal 1 or 2 coins from target *)
+    | `Exchange (* Ambassador: exchange cards with the Court deck *) ]
+  [@@deriving sexp] *)
+
+  type t = [ challengable_actions | non_challengable_actions ]
 
   let valid_actions coins =
     let cost = function
-      | Income -> 0
-      | ForeignAid -> 0
-      | Coup _ -> 7
-      | Tax -> 3
-      | Assassinate _ -> 3
-      | Steal _ -> 2
-      | Exchange -> 0
+      | `Income -> 0
+      | `Foreign_aid -> 0
+      | `Coup _ -> 7
+      | `Tax -> 3
+      | `Assassinate _ -> 3
+      | `Steal _ -> 2
+      | `Exchange -> 0
     in
     let all_actions =
       [
-        Income;
-        ForeignAid;
-        Coup (Player_id.of_int (-1));
-        Tax;
-        Assassinate (Player_id.of_int (-1));
-        Steal (Player_id.of_int (-1));
-        Exchange;
+        `Income;
+        `Foreign_aid;
+        `Coup (Player_id.of_int (-1));
+        `Tax;
+        `Assassinate (Player_id.of_int (-1));
+        `Steal (Player_id.of_int (-1));
+        `Exchange;
       ]
     in
     List.filter all_actions ~f:(fun action -> coins >= cost action)
 
   let to_string = function
-    | Income -> "Income"
-    | ForeignAid -> "ForeignAid"
-    | Coup target_player_id ->
+    | `Income -> "Income"
+    | `Foreign_aid -> "Foreign_aid"
+    | `Coup target_player_id ->
         sprintf "Coup %d" (Player_id.to_int target_player_id)
-    | Tax -> "Tax"
-    | Assassinate target_player_id ->
+    | `Tax -> "Tax"
+    | `Assassinate target_player_id ->
         sprintf "Assassinate %d" (Player_id.to_int target_player_id)
-    | Steal target_player_id ->
+    | `Steal target_player_id ->
         sprintf "Steal %d" (Player_id.to_int target_player_id)
-    | Exchange -> "Exchange"
+    | `Exchange -> "Exchange"
 end
 
 module Hand = struct
@@ -176,7 +214,7 @@ module type Player_io_S = sig
     t ->
     visible_game_state:Visible_game_state.t ->
     Player_id.t ->
-    Card.t ->
+    Challengable.t ->
     cancelled_reason:Cancelled_reason.t Deferred.t ->
     [ `No_challenge | `Challenge ] Deferred.t
 
@@ -243,19 +281,17 @@ end = struct
         | `Eof -> unexpected_eof ()
         | `Ok action_str -> (
             match String.split action_str ~on:' ' with
-            | [ "I" ] -> return Action.Income
-            | [ "FA" ] -> return Action.ForeignAid
+            | [ "I" ] -> return `Income
+            | [ "FA" ] -> return `Foreign_aid
             | [ "A"; n ] ->
-                return (Action.Assassinate (Player_id.of_int (Int.of_string n)))
-            | [ "C"; n ] ->
-                return (Action.Coup (Player_id.of_int (Int.of_string n)))
-            | [ "T" ] -> return Action.Tax
-            | [ "S"; n ] ->
-                return (Action.Steal (Player_id.of_int (Int.of_string n)))
-            | [ "E" ] -> return Action.Exchange
+                return (`Assassinate (Player_id.of_int (Int.of_string n)))
+            | [ "C"; n ] -> return (`Coup (Player_id.of_int (Int.of_string n)))
+            | [ "T" ] -> return `Tax
+            | [ "S"; n ] -> return (`Steal (Player_id.of_int (Int.of_string n)))
+            | [ "E" ] -> return `Exchange
             | _ ->
                 print_endline t "Invalid action";
-                return Action.Income))
+                return `Income))
 
   let choose_assasination_response t ~visible_game_state ~asassinating_player_id
       =
@@ -371,7 +407,7 @@ end = struct
                 print_endline t "Invalid action";
                 `Card_1))
 
-  let offer_challenge t ~visible_game_state acting_player_id card
+  let offer_challenge t ~visible_game_state acting_player_id challengable
       ~cancelled_reason =
     (* TODO: Don't know who [action] is targeting *)
     upon cancelled_reason (function
@@ -385,8 +421,8 @@ end = struct
             print_visible_game_state t visible_game_state;
             print_endline t
               [%string
-                "Player %{acting_player_id#Player_id} is claiming \
-                 %{card#Card}. Challenge? (Y/N)"];
+                "Player %{acting_player_id#Player_id} is attempting to perform \
+                 %{challengable#Challengable}. Challenge? (Y/N)"];
             match%map Reader.read_line stdin with
             | `Eof -> unexpected_eof ()
             | `Ok action_str -> (
@@ -537,7 +573,7 @@ end = struct
     let prompt =
       [%string
         "%{visible_game_state_string}\n\
-         Choose action: Income | ForeignAid | Assassinate player_id | Coup \
+         Choose action: Income | Foreign_aid | Assassinate player_id | Coup \
          target_player_id | Tax | Steal target_player_id | Exchange. Respond \
          with a json object with the key 'reasoning' containing the reasoning \
          behind your choice as a string, and the key 'action' containing the \
@@ -552,19 +588,19 @@ end = struct
       Yojson.Basic.Util.member "target_player_id" response
     in
     match (action, target_player_id) with
-    | `String "Income", `Null -> Action.Income
-    | `String "ForeignAid", `Null -> Action.ForeignAid
+    | `String "Income", `Null -> `Income
+    | `String "Foreign_aid", `Null -> `Foreign_aid
     | `String "Assassinate", `Int target_player_id ->
-        Action.Assassinate (Player_id.of_int target_player_id)
+        `Assassinate (Player_id.of_int target_player_id)
     | `String "Coup", `Int target_player_id ->
-        Action.Coup (Player_id.of_int target_player_id)
-    | `String "Tax", `Null -> Action.Tax
+        `Coup (Player_id.of_int target_player_id)
+    | `String "Tax", `Null -> `Tax
     | `String "Steal", `Int target_player_id ->
-        Action.Steal (Player_id.of_int target_player_id)
-    | `String "Exchange", `Null -> Action.Exchange
+        `Steal (Player_id.of_int target_player_id)
+    | `String "Exchange", `Null -> `Exchange
     | _ ->
         print_endline t "Invalid action";
-        Action.Income
+        `Income
 
   let choose_assasination_response t ~visible_game_state ~asassinating_player_id
       =
@@ -574,7 +610,7 @@ end = struct
     let prompt =
       [%string
         "%{visible_game_state_string}\n\
-         You are being assasinated by player \
+         You are being assassinated by player \
          %{asassinating_player_id#Player_id}. Respond with a json object with \
          the key 'reasoning' containing the reasoning behind your choice as a \
          string, and the key 'response' containing 'Allow' or 'Block'."]
@@ -693,7 +729,7 @@ end = struct
         print_endline t "Invalid response";
         `Card_1
 
-  let offer_challenge t ~visible_game_state acting_player_id card
+  let offer_challenge t ~visible_game_state acting_player_id challengable
       ~cancelled_reason:_ =
     let visible_game_state_string =
       Visible_game_state.to_string_pretty visible_game_state
@@ -701,10 +737,10 @@ end = struct
     let prompt =
       [%string
         "%{visible_game_state_string}\n\
-         Player %{acting_player_id#Player_id} is claiming card %{card#Card}. \
-         Respond with a json object with the key 'reasoning' containing the \
-         reasoning behind your choice as a string, and the key 'response' \
-         containing 'No_challenge' or 'Challenge'."]
+         Player %{acting_player_id#Player_id} is attempting to perform \
+         %{challengable#Challengable}. Respond with a json object with the key \
+         'reasoning' containing the reasoning behind your choice as a string, \
+         and the key 'response' containing 'No_challenge' or 'Challenge'."]
     in
     let%map response = send_request t prompt in
     let response = Yojson.Basic.Util.member "response" response in
@@ -891,10 +927,10 @@ module Game_state = struct
     let player = get_player_exn t active_player_id in
     let cost, target_player_id =
       match action with
-      | Action.Income | ForeignAid | Tax | Exchange -> (0, None)
-      | Coup target_player_id -> (7, Some target_player_id)
-      | Assassinate target_player_id -> (3, Some target_player_id)
-      | Steal target_player_id -> (0, Some target_player_id)
+      | `Income | `Foreign_aid | `Tax | `Exchange -> (0, None)
+      | `Coup target_player_id -> (7, Some target_player_id)
+      | `Assassinate target_player_id -> (3, Some target_player_id)
+      | `Steal target_player_id -> (0, Some target_player_id)
     in
     let has_enough_coins = player.coins >= cost
     and is_valid_target =
@@ -1112,7 +1148,7 @@ let handle_response_race game_state acting_player_id ~f =
   in
   Deferred.any [ blocked; allowed ]
 
-let handle_challenge game_state acting_player_id (action : Card.t) =
+let handle_challenge game_state acting_player_id (action : Challengable.t) =
   let%bind challenge_result =
     handle_response_race game_state acting_player_id
       ~f:(fun player cancelled_reason ->
@@ -1127,7 +1163,7 @@ let handle_challenge game_state acting_player_id (action : Card.t) =
   match challenge_result with
   | `Allow -> Deferred.Result.return (`Failed_or_no_challenge game_state)
   | `Blocked_by challenger_player_id -> (
-      let card_to_replace = action in
+      let card_to_replace = Challengable.required_card action in
       match Game_state.has_card game_state acting_player_id card_to_replace with
       | false ->
           let%map.Deferred.Result new_game_state =
@@ -1150,7 +1186,7 @@ let assassinate game_state active_player_id target_player_id =
         { player with coins = player.coins - 3 })
   in
   match%bind.Deferred.Result
-    handle_challenge game_state active_player_id Assassin
+    handle_challenge game_state active_player_id (`Assassinate target_player_id)
   with
   | `Successfully_challenged post_challenge_game_state ->
       Deferred.Result.return post_challenge_game_state
@@ -1172,7 +1208,7 @@ let assassinate game_state active_player_id target_player_id =
           | `Block -> (
               match%bind.Deferred.Result
                 handle_challenge post_challenge_game_state target_player_id
-                  Contessa
+                  `Block_assassination
               with
               | `Successfully_challenged post_second_challenge_game_state ->
                   if
@@ -1203,7 +1239,7 @@ let take_foreign_aid game_state =
   with
   | `Blocked_by blocking_player_id -> (
       match%bind.Deferred.Result
-        handle_challenge game_state blocking_player_id Duke
+        handle_challenge game_state blocking_player_id `Block_foreign_aid
       with
       | `Successfully_challenged post_second_challenge_game_state ->
           Deferred.Result.return
@@ -1222,7 +1258,7 @@ let coup game_state target_player_id =
 let take_tax game_state =
   match%map.Deferred.Result
     handle_challenge game_state (Game_state.get_active_player game_state).id
-      Duke
+      `Tax
   with
   | `Successfully_challenged post_challenge_game_state ->
       post_challenge_game_state
@@ -1241,7 +1277,7 @@ let steal game_state target_player_id =
   in
   match%bind.Deferred.Result
     handle_challenge game_state (Game_state.get_active_player game_state).id
-      Captain
+      (`Steal target_player_id)
   with
   | `Successfully_challenged post_challenge_game_state ->
       Deferred.Result.return post_challenge_game_state
@@ -1266,9 +1302,7 @@ let steal game_state target_player_id =
           | `Block blocking_card -> (
               match%map.Deferred.Result
                 handle_challenge post_challenge_game_state target_player_id
-                  (match blocking_card with
-                  | `Ambassador -> Ambassador
-                  | `Captain -> Captain)
+                  (`Block_steal blocking_card)
               with
               | `Successfully_challenged post_second_challenge_game_state ->
                   post_second_challenge_game_state
@@ -1350,7 +1384,7 @@ let take_turn_result game_state =
     >>| Result.return
   in
   match (action : Action.t) with
-  | Income ->
+  | `Income ->
       let%map.Deferred.Result () =
         Game_state.players game_state
         |> List.map ~f:(fun player ->
@@ -1359,10 +1393,10 @@ let take_turn_result game_state =
         |> Deferred.all_unit >>| Result.return
       in
       take_income game_state
-  | Assassinate target_player_id ->
+  | `Assassinate target_player_id ->
       assassinate game_state active_player.id target_player_id
-  | ForeignAid -> take_foreign_aid game_state
-  | Coup target_player_id ->
+  | `Foreign_aid -> take_foreign_aid game_state
+  | `Coup target_player_id ->
       let%bind.Deferred.Result () =
         Game_state.players game_state
         |> List.map ~f:(fun player ->
@@ -1371,9 +1405,9 @@ let take_turn_result game_state =
         |> Deferred.all_unit >>| Result.return
       in
       coup game_state target_player_id
-  | Tax -> take_tax game_state
-  | Steal target_player_id -> steal game_state target_player_id
-  | Exchange ->
+  | `Tax -> take_tax game_state
+  | `Steal target_player_id -> steal game_state target_player_id
+  | `Exchange ->
       let%bind.Deferred.Result () =
         Game_state.players game_state
         |> List.map ~f:(fun player ->
