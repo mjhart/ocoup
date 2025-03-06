@@ -35,10 +35,18 @@ end = struct
   let to_string = Int.to_string
 end
 
-type non_challengable_actions = [ `Income | `Foreign_aid | `Coup of Player_id.t ]
+type non_challengable_actions =
+  [ `Income (* take 1 coin from the Treasury *)
+  | `Foreign_aid (* take 2 coins (subject to blocking) *)
+  | `Coup of
+    Player_id.t (* pay 7 coins to launch a coup against target player *) ]
 
 type challengable_actions =
-  [ `Tax | `Assassinate of Player_id.t | `Steal of Player_id.t | `Exchange ]
+  [ `Tax (* Duke: take 3 coins from the Treasury *)
+  | `Assassinate of
+    Player_id.t (* Assassin: pay 3 coins to assassinate target *)
+  | `Steal of Player_id.t
+  | `Exchange (* Ambassador: exchange cards with the Court deck *) ]
 
 type challengable_responses =
   [ `Block_assassination
@@ -73,46 +81,11 @@ end
 
 (* Actions a player may choose. Some actions have a target (represented by a player id). *)
 module Action = struct
-  (* type t =
-    [ `Income (* take 1 coin from the Treasury *)
-    | `Foreign_aid (* take 2 coins (subject to blocking) *)
-    | `Coup of
-      Player_id.t (* pay 7 coins to launch a coup against target player *)
-    | `Tax (* Duke: take 3 coins from the Treasury *)
-    | `Assassinate of
-      Player_id.t (* Assassin: pay 3 coins to assassinate target *)
-    | `Steal of Player_id.t (* Captain: steal 1 or 2 coins from target *)
-    | `Exchange (* Ambassador: exchange cards with the Court deck *) ]
-  [@@deriving sexp] *)
-
   type t = [ challengable_actions | non_challengable_actions ]
-
-  let valid_actions coins =
-    let cost = function
-      | `Income -> 0
-      | `Foreign_aid -> 0
-      | `Coup _ -> 7
-      | `Tax -> 3
-      | `Assassinate _ -> 3
-      | `Steal _ -> 2
-      | `Exchange -> 0
-    in
-    let all_actions =
-      [
-        `Income;
-        `Foreign_aid;
-        `Coup (Player_id.of_int (-1));
-        `Tax;
-        `Assassinate (Player_id.of_int (-1));
-        `Steal (Player_id.of_int (-1));
-        `Exchange;
-      ]
-    in
-    List.filter all_actions ~f:(fun action -> coins >= cost action)
 
   let to_string = function
     | `Income -> "Income"
-    | `Foreign_aid -> "Foreign_aid"
+    | `Foreign_aid -> "Foreign aid"
     | `Coup target_player_id ->
         sprintf "Coup %d" (Player_id.to_int target_player_id)
     | `Tax -> "Tax"
@@ -409,7 +382,6 @@ end = struct
 
   let offer_challenge t ~visible_game_state acting_player_id challengable
       ~cancelled_reason =
-    (* TODO: Don't know who [action] is targeting *)
     upon cancelled_reason (function
         | Cancelled_reason.Other_player_responded player_id ->
         print_endline t
@@ -953,10 +925,6 @@ module Game_state = struct
         List.mem [ card_1; card_2 ] card ~equal:Card.equal
     | Hand.One { hidden; revealed = _ } -> Card.equal hidden card
 
-  let _valid_actions t active_player_id =
-    let player = get_player_exn t active_player_id in
-    Action.valid_actions player.coins
-
   let to_visible_game_state t player_id =
     let player = get_player_exn t player_id in
     let other_players =
@@ -1282,7 +1250,6 @@ let steal game_state target_player_id =
   | `Successfully_challenged post_challenge_game_state ->
       Deferred.Result.return post_challenge_game_state
   | `Failed_or_no_challenge post_challenge_game_state -> (
-      (* TODO make sure target still alive *)
       match
         Game_state.get_player_if_exists post_challenge_game_state
           target_player_id
