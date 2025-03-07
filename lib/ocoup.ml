@@ -194,6 +194,12 @@ module type Player_io_S = sig
   val notify_of_action_choice : t -> Player_id.t -> Action.t -> unit Deferred.t
   val notify_of_lost_influence : t -> Player_id.t -> Card.t -> unit Deferred.t
   val notify_of_new_card : t -> Card.t -> unit Deferred.t
+
+  val notify_of_challenge :
+    t ->
+    challenging_player_id:Player_id.t ->
+    has_required_card:bool ->
+    unit Deferred.t
 end
 
 module Cli_player_io : sig
@@ -345,7 +351,7 @@ end = struct
             "Cards to choose from:\n\
              %{cards_string}\n\
              Choose 2 cards to return by entering the indices of the cards you \
-             want to return."];
+             want to return, separated by a space and 0-indexed."];
         match%map Reader.read_line stdin with
         | `Eof -> unexpected_eof ()
         | `Ok action_str -> (
@@ -369,13 +375,13 @@ end = struct
           [%string
             "Cards to choose from:\n\
              %{cards_string}\n\
-             Which card do you want to reveal? (1/2)"];
+             Which card do you want to reveal? (0/1)"];
         match%map Reader.read_line stdin with
         | `Eof -> unexpected_eof ()
         | `Ok action_str -> (
             match String.split action_str ~on:' ' with
-            | [ "1" ] -> `Card_1
-            | [ "2" ] -> `Card_2
+            | [ "0" ] -> `Card_1
+            | [ "1" ] -> `Card_2
             | _ ->
                 print_endline t "Invalid action";
                 `Card_1))
@@ -416,6 +422,17 @@ end = struct
   let notify_of_lost_influence t player_id card =
     print_endline t
       [%string "Player %{player_id#Player_id} lost influence %{card#Card}"]
+    |> return
+
+  let notify_of_challenge t ~challenging_player_id ~has_required_card =
+    let success =
+      match has_required_card with
+      | true -> "unsuccessfully"
+      | false -> "successfully"
+    in
+    print_endline t
+      [%string
+        "Player %{challenging_player_id#Player_id} challenged you %{success}"]
     |> return
 end
 
@@ -680,8 +697,9 @@ end = struct
     let visible_game_state_string =
       Visible_game_state.to_string_pretty visible_game_state
     in
+    let cards = [ card_1; card_2 ] in
     let cards_string =
-      [ card_1; card_2 ] |> List.map ~f:Card.to_string |> String.concat ~sep:" "
+      cards |> List.map ~f:Card.to_string |> String.concat ~sep:" "
     in
     let prompt =
       [%string
@@ -690,13 +708,21 @@ end = struct
          to you are %{cards_string}. Which card do you want to reveal? Respond \
          with a json object with the key 'reasoning' containing the reasoning \
          behind your choice as a string, and the key 'response' containing the \
-         index of the card you want to reveal. The indices are 0-indexed."]
+         name of the card you want to reveal, exactly as it appears in the \
+         list of cards."]
     in
     let%map response = send_request t prompt in
-    let response = Yojson.Basic.Util.member "response" response in
-    match response with
-    | `String "0" -> `Card_1
-    | `String "1" -> `Card_2
+    let response =
+      Yojson.Basic.Util.member "response" response
+      |> Yojson.Basic.Util.to_string
+    in
+    let n =
+      List.findi cards ~f:(fun _ card ->
+          String.equal (Card.to_string card) response)
+    in
+    match n with
+    | Some (0, _) -> `Card_1
+    | Some (1, _) -> `Card_2
     | _ ->
         print_endline t "Invalid response";
         `Card_1
@@ -740,6 +766,19 @@ end = struct
   let notify_of_new_card t card =
     Queue.enqueue t.events
       (Developer, [%string "Received new card %{card#Card}"]);
+    return ()
+
+  let notify_of_challenge t ~challenging_player_id ~has_required_card =
+    let success =
+      match has_required_card with
+      | true -> "unsuccessfully"
+      | false -> "successfully"
+    in
+    Queue.enqueue t.events
+      ( Developer,
+        [%string
+          "Player %{challenging_player_id#Player_id} challenged you %{success}"]
+      );
     return ()
 end
 
@@ -823,6 +862,11 @@ end = struct
     match t with
     | Cli cli -> Cli_player_io.notify_of_new_card cli card
     | Llm llm -> Llm_player_io.notify_of_new_card llm card
+
+  let notify_of_challenge t ~challenging_player_id =
+    match t with
+    | Cli cli -> Cli_player_io.notify_of_challenge cli ~challenging_player_id
+    | Llm llm -> Llm_player_io.notify_of_challenge llm ~challenging_player_id
 end
 
 module Player = struct
@@ -1012,6 +1056,7 @@ let take_income game_state =
 
 let game_over = Deferred.Result.fail
 
+(* maybe return [Game_state.t * Player_id.t option] *)
 let lose_influence game_state target_player_id =
   let%bind.Deferred.Result new_game_state, revealed_card =
     let player = Game_state.get_player_exn game_state target_player_id in
@@ -1131,16 +1176,27 @@ let handle_challenge game_state acting_player_id (action : Challengable.t) =
   match challenge_result with
   | `Allow -> Deferred.Result.return (`Failed_or_no_challenge game_state)
   | `Blocked_by challenger_player_id -> (
-      let card_to_replace = Challengable.required_card action in
-      match Game_state.has_card game_state acting_player_id card_to_replace with
+      let required_card = Challengable.required_card action in
+      let has_required_card =
+        Game_state.has_card game_state acting_player_id required_card
+      in
+      let%bind.Deferred.Result () =
+        Player_io.notify_of_challenge
+          (Game_state.get_player_exn game_state acting_player_id).player_io
+          ~challenging_player_id:challenger_player_id ~has_required_card
+        >>| Result.return
+      in
+      match has_required_card with
       | false ->
           let%map.Deferred.Result new_game_state =
+            (* TODO don't know who challenged *)
             lose_influence game_state acting_player_id
           in
           `Successfully_challenged new_game_state
       | true ->
           let%bind.Deferred.Result game_state_after_new_card =
-            randomly_get_new_card game_state acting_player_id card_to_replace
+            (* TODO don't know who challenged *)
+            randomly_get_new_card game_state acting_player_id required_card
             >>| Result.return
           in
           let%map.Deferred.Result new_game_state =
@@ -1259,8 +1315,10 @@ let steal game_state target_player_id =
           match%bind.Deferred.Result
             Player_io.choose_steal_response target_player.player_io
               ~visible_game_state:
-                (Game_state.to_visible_game_state game_state target_player.id)
-              ~stealing_player_id:(Game_state.get_active_player game_state).id
+                (Game_state.to_visible_game_state post_challenge_game_state
+                   target_player.id)
+              ~stealing_player_id:
+                (Game_state.get_active_player post_challenge_game_state).id
             >>| Result.return
           with
           | `Allow ->
