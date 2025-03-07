@@ -783,90 +783,70 @@ end = struct
 end
 
 module Player_io : sig
-  type t = Cli of Cli_player_io.t | Llm of Llm_player_io.t
+  type t
+
+  val llm :
+    Player_id.t ->
+    card_1:Card.t ->
+    card_2:Card.t ->
+    other_players:Player_id.t list ->
+    model:string ->
+    t Deferred.t
+
+  val cli : Player_id.t -> t Deferred.t
 
   include Player_io_S with type t := t
 end = struct
-  type t = Cli of Cli_player_io.t | Llm of Llm_player_io.t
+  type t = Packed : (module Player_io_S with type t = 'a) * 'a -> t
 
-  let choose_action t ~visible_game_state =
-    match t with
-    | Cli cli -> Cli_player_io.choose_action cli ~visible_game_state
-    | Llm llm -> Llm_player_io.choose_action llm ~visible_game_state
+  let llm id ~card_1 ~card_2 ~other_players ~model =
+    let (module M) =
+      (module Llm_player_io : Player_io_S with type t = Llm_player_io.t)
+    in
+    let%map implementation =
+      Llm_player_io.create id ~card_1 ~card_2 ~other_players ~model
+    in
+    Packed ((module M), implementation)
 
-  let choose_assasination_response t ~visible_game_state ~asassinating_player_id
-      =
-    match t with
-    | Cli cli ->
-        Cli_player_io.choose_assasination_response cli ~visible_game_state
-          ~asassinating_player_id
-    | Llm llm ->
-        Llm_player_io.choose_assasination_response llm ~visible_game_state
-          ~asassinating_player_id
+  let cli id =
+    let (module M) =
+      (module Cli_player_io : Player_io_S with type t = Cli_player_io.t)
+    in
+    let%map implementation = Cli_player_io.cli_player id in
+    Packed ((module M), implementation)
 
-  let choose_foreign_aid_response t ~visible_game_state () ~cancelled_reason =
-    match t with
-    | Cli cli ->
-        Cli_player_io.choose_foreign_aid_response cli ~visible_game_state ()
-          ~cancelled_reason
-    | Llm llm ->
-        Llm_player_io.choose_foreign_aid_response llm ~visible_game_state ()
-          ~cancelled_reason
+  let choose_action (Packed ((module M), implementation)) =
+    M.choose_action implementation
 
-  let choose_steal_response t ~visible_game_state ~stealing_player_id =
-    match t with
-    | Cli cli ->
-        Cli_player_io.choose_steal_response cli ~visible_game_state
-          ~stealing_player_id
-    | Llm llm ->
-        Llm_player_io.choose_steal_response llm ~visible_game_state
-          ~stealing_player_id
+  let choose_assasination_response (Packed ((module M), implementation)) =
+    M.choose_assasination_response implementation
 
-  let choose_cards_to_return t ~visible_game_state card_1 card_2 hand =
-    match t with
-    | Cli cli ->
-        Cli_player_io.choose_cards_to_return cli ~visible_game_state card_1
-          card_2 hand
-    | Llm llm ->
-        Llm_player_io.choose_cards_to_return llm ~visible_game_state card_1
-          card_2 hand
+  let choose_foreign_aid_response (Packed ((module M), implementation)) =
+    M.choose_foreign_aid_response implementation
 
-  let reveal_card t ~visible_game_state ~card_1 ~card_2 =
-    match t with
-    | Cli cli ->
-        Cli_player_io.reveal_card cli ~visible_game_state ~card_1 ~card_2
-    | Llm llm ->
-        Llm_player_io.reveal_card llm ~visible_game_state ~card_1 ~card_2
+  let choose_steal_response (Packed ((module M), implementation)) =
+    M.choose_steal_response implementation
 
-  let offer_challenge t ~visible_game_state acting_player_id card
-      ~cancelled_reason =
-    match t with
-    | Cli cli ->
-        Cli_player_io.offer_challenge cli ~visible_game_state acting_player_id
-          card ~cancelled_reason
-    | Llm llm ->
-        Llm_player_io.offer_challenge llm ~visible_game_state acting_player_id
-          card ~cancelled_reason
+  let choose_cards_to_return (Packed ((module M), implementation)) =
+    M.choose_cards_to_return implementation
 
-  let notify_of_action_choice t player_id action =
-    match t with
-    | Cli cli -> Cli_player_io.notify_of_action_choice cli player_id action
-    | Llm llm -> Llm_player_io.notify_of_action_choice llm player_id action
+  let reveal_card (Packed ((module M), implementation)) =
+    M.reveal_card implementation
 
-  let notify_of_lost_influence t player_id card =
-    match t with
-    | Cli cli -> Cli_player_io.notify_of_lost_influence cli player_id card
-    | Llm llm -> Llm_player_io.notify_of_lost_influence llm player_id card
+  let offer_challenge (Packed ((module M), implementation)) =
+    M.offer_challenge implementation
 
-  let notify_of_new_card t card =
-    match t with
-    | Cli cli -> Cli_player_io.notify_of_new_card cli card
-    | Llm llm -> Llm_player_io.notify_of_new_card llm card
+  let notify_of_action_choice (Packed ((module M), implementation)) =
+    M.notify_of_action_choice implementation
 
-  let notify_of_challenge t ~challenging_player_id =
-    match t with
-    | Cli cli -> Cli_player_io.notify_of_challenge cli ~challenging_player_id
-    | Llm llm -> Llm_player_io.notify_of_challenge llm ~challenging_player_id
+  let notify_of_lost_influence (Packed ((module M), implementation)) =
+    M.notify_of_lost_influence implementation
+
+  let notify_of_new_card (Packed ((module M), implementation)) =
+    M.notify_of_new_card implementation
+
+  let notify_of_challenge (Packed ((module M), implementation)) =
+    M.notify_of_challenge implementation
 end
 
 module Player = struct
@@ -1012,15 +992,13 @@ module Game_state = struct
           | 2 -> Llm_player_io.o3_mini
           | _ -> Llm_player_io.gpt_4o
         in
-        let%map llm_player_io =
-          Llm_player_io.create id ~card_1 ~card_2 ~other_players ~model
+        let%map player_io =
+          Player_io.llm id ~card_1 ~card_2 ~other_players ~model
         in
-        let player_io = Player_io.Llm llm_player_io in
 
         { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
     | _ ->
-        let%map cli_player_io = Cli_player_io.cli_player id in
-        let player_io = Player_io.Cli cli_player_io in
+        let%map player_io = Player_io.cli id in
         { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
 
   let init () =
