@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import type { ServerMessage, ClientMessage } from './types';
+import { ServerMessage as ServerMessageComponent } from './components/ServerMessage';
+import { ResponseForm } from './components/ResponseForm';
 
 export default function Home() {
-  const [events, setEvents] = useState<Array<{type: 'sent' | 'received' | 'system', content: string}>>([]);
-  const [response, setResponse] = useState('');
+  const [events, setEvents] = useState<Array<{type: 'sent' | 'received' | 'system', message: ServerMessage | ClientMessage | string}>>([]);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
@@ -22,97 +24,81 @@ export default function Home() {
 
     ws.onopen = () => {
       setIsConnected(true);
-      setEvents(prev => [...prev, { type: 'system', content: 'Connected to server' }]);
+      setEvents(prev => [...prev, { type: 'system', message: 'Connected to server' }]);
     };
 
     ws.onmessage = (event) => {
       try {
-        const parsed = JSON.parse(event.data);
-        setEvents(prev => [...prev, { 
-          type: 'received', 
-          content: JSON.stringify(parsed, null, 2)
-        }]);
+        const parsed = JSON.parse(event.data) as ServerMessage;
+        setEvents(prev => [...prev, { type: 'received', message: parsed }]);
       } catch {
-        setEvents(prev => [...prev, { 
-          type: 'received', 
-          content: event.data
-        }]);
+        setEvents(prev => [...prev, { type: 'received', message: event.data }]);
       }
     };
 
     ws.onclose = () => {
       setIsConnected(false);
-      setEvents(prev => [...prev, { type: 'system', content: 'Disconnected from server' }]);
+      setEvents(prev => [...prev, { type: 'system', message: 'Disconnected from server' }]);
     };
 
     ws.onerror = (error) => {
-      setEvents(prev => [...prev, { type: 'system', content: `WebSocket error: ${error}` }]);
+      setEvents(prev => [...prev, { type: 'system', message: `WebSocket error: ${error}` }]);
     };
 
     wsRef.current = ws;
   };
 
-  const sendResponse = () => {
+  const sendResponse = (response: ClientMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      try {
-        const parsed = JSON.parse(response);
-        const formatted = JSON.stringify(parsed, null, 2);
-        wsRef.current.send(response);
-        setEvents(prev => [...prev, { type: 'sent', content: formatted }]);
-        setResponse('');
-      } catch (error) {
-        setEvents(prev => [...prev, { type: 'system', content: 'Error: Invalid JSON format' }]);
-      }
+      const message = JSON.stringify(response);
+      wsRef.current.send(message);
+      setEvents(prev => [...prev, { type: 'sent', message: response }]);
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendResponse();
-    }
-  };
+  const lastServerMessage = events
+    .filter((e): e is { type: 'received', message: ServerMessage } => 
+      e.type === 'received' && typeof e.message !== 'string')
+    .map(e => e.message)
+    .pop() || null;
 
   return (
-    <main className="min-h-screen p-4 md:p-8 max-w-4xl mx-auto">
-      <div className="flex flex-col gap-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl md:text-3xl font-semibold text-gray-800">Coup Game Client</h1>
+    <main className="main">
+      <div className="flex-col gap-8">
+        <div className="header">
+          <h1 className="title">Coup Game Client</h1>
           {!isConnected && (
             <button
               onClick={connectWebSocket}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm"
+              className="btn"
             >
               Start Game
             </button>
           )}
         </div>
 
-        <div className="flex flex-col gap-4 flex-grow">
-          <div className="bg-white rounded-xl shadow-sm border min-h-[400px] max-h-[600px] overflow-y-auto p-4">
+        <div className="content">
+          <div className="messages">
             {events.map((event, index) => (
               <div key={index} className={`event-message ${event.type}`}>
-                <pre className="whitespace-pre-wrap">{event.content}</pre>
+                {typeof event.message === 'string' ? (
+                  <div>{event.message}</div>
+                ) : event.type === 'received' ? (
+                  <ServerMessageComponent message={event.message as ServerMessage} />
+                ) : (
+                  <pre className="whitespace-pre-wrap">{JSON.stringify(event.message, null, 2)}</pre>
+                )}
               </div>
             ))}
             <div ref={eventsEndRef} />
           </div>
 
           {isConnected && (
-            <div className="flex gap-4">
-              <textarea
-                value={response}
-                onChange={(e) => setResponse(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Enter JSON response..."
-                className="flex-1 p-3 rounded-lg border bg-white shadow-sm min-h-[120px] text-sm font-mono"
+            <div className="response-form">
+              <ResponseForm 
+                lastMessage={lastServerMessage}
+                onSubmit={sendResponse}
               />
-              <button
-                onClick={sendResponse}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-6 rounded-lg shadow-sm self-end"
-              >
-                Send
-              </button>
             </div>
           )}
         </div>
