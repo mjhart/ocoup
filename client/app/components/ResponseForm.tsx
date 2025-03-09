@@ -8,6 +8,9 @@ interface Props {
 export function ResponseForm({ lastMessage, onSubmit }: Props) {
   if (!lastMessage) return null;
 
+  // Define Tailwind classes for buttons
+  const btnClass = "py-2 px-4 bg-indigo-600 text-white border-none rounded-lg shadow-sm transition-all duration-200 cursor-pointer text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed";
+
   switch (lastMessage.type) {
     case 'Choose_action':
       return (
@@ -15,25 +18,25 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => onSubmit({ type: 'Income' })}
-              className="btn"
+              className={btnClass}
             >
               Income
             </button>
             <button
               onClick={() => onSubmit({ type: 'Foreign_aid' })}
-              className="btn"
+              className={btnClass}
             >
               Foreign Aid
             </button>
             <button
               onClick={() => onSubmit({ type: 'Tax' })}
-              className="btn"
+              className={btnClass}
             >
               Tax
             </button>
             <button
               onClick={() => onSubmit({ type: 'Exchange' })}
-              className="btn"
+              className={btnClass}
             >
               Exchange
             </button>
@@ -45,21 +48,21 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
               <div key={player.player_id} className="flex gap-2">
                 <button
                   onClick={() => onSubmit({ type: 'Assassinate', player_id: player.player_id })}
-                  className="btn"
+                  className={btnClass}
                   disabled={lastMessage.visible_game_state.coins < 3}
                 >
                   Assassinate
                 </button>
                 <button
                   onClick={() => onSubmit({ type: 'Coup', player_id: player.player_id })}
-                  className="btn"
+                  className={btnClass}
                   disabled={lastMessage.visible_game_state.coins < 7}
                 >
                   Coup
                 </button>
                 <button
                   onClick={() => onSubmit({ type: 'Steal', player_id: player.player_id })}
-                  className="btn"
+                  className={btnClass}
                 >
                   Steal
                 </button>
@@ -78,13 +81,13 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
         <div className="flex gap-2">
           <button
             onClick={() => onSubmit({ type: 'Allow' })}
-            className="btn"
+            className={btnClass}
           >
             Allow
           </button>
           <button
             onClick={() => onSubmit({ type: 'Block' })}
-            className="btn"
+            className={btnClass}
           >
             Block
           </button>
@@ -96,19 +99,19 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
         <div className="flex gap-2">
           <button
             onClick={() => onSubmit({ type: 'Allow' })}
-            className="btn"
+            className={btnClass}
           >
             Allow
           </button>
           <button
             onClick={() => onSubmit({ type: 'Block', card: 'Ambassador' })}
-            className="btn"
+            className={btnClass}
           >
             Block with Ambassador
           </button>
           <button
             onClick={() => onSubmit({ type: 'Block', card: 'Captain' })}
-            className="btn"
+            className={btnClass}
           >
             Block with Captain
           </button>
@@ -123,7 +126,7 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
               <button
                 key={`${card1}-${card2}`}
                 onClick={() => onSubmit([card1, card2])}
-                className="btn"
+                className={btnClass}
               >
                 Keep {card1} and {card2}
               </button>
@@ -137,13 +140,13 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
         <div className="flex gap-2">
           <button
             onClick={() => onSubmit({ type: 'Card_1' })}
-            className="btn"
+            className={btnClass}
           >
             Reveal {lastMessage.card_1}
           </button>
           <button
             onClick={() => onSubmit({ type: 'Card_2' })}
-            className="btn"
+            className={btnClass}
           >
             Reveal {lastMessage.card_2}
           </button>
@@ -155,13 +158,13 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
         <div className="flex gap-2">
           <button
             onClick={() => onSubmit({ type: 'No_challenge' })}
-            className="btn"
+            className={btnClass}
           >
             Allow
           </button>
           <button
             onClick={() => onSubmit({ type: 'Challenge' })}
-            className="btn"
+            className={btnClass}
           >
             Challenge
           </button>
@@ -171,4 +174,4 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
     default:
       return null;
   }
-} 
+}

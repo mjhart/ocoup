@@ -63,38 +63,50 @@ export default function Home() {
     .pop() || null;
 
   return (
-    <main className="main">
-      <div className="flex-col gap-8">
-        <div className="header">
-          <h1 className="title">Coup Game Client</h1>
+    <main className="min-h-screen p-4 max-w-4xl mx-auto md:p-8">
+      <div className="flex flex-col gap-8">
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-xl font-semibold text-gray-800 md:text-3xl">Coup Game Client</h1>
           {!isConnected && (
             <button
               onClick={connectWebSocket}
-              className="btn"
+              className="py-2 px-4 bg-indigo-600 text-white border-none rounded-lg shadow-sm transition-all duration-200 cursor-pointer text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Start Game
             </button>
           )}
         </div>
 
-        <div className="content">
-          <div className="messages">
-            {events.map((event, index) => (
-              <div key={index} className={`event-message ${event.type}`}>
-                {typeof event.message === 'string' ? (
-                  <div>{event.message}</div>
-                ) : event.type === 'received' ? (
-                  <ServerMessageComponent message={event.message as ServerMessage} />
-                ) : (
-                  <pre className="whitespace-pre-wrap">{JSON.stringify(event.message, null, 2)}</pre>
-                )}
-              </div>
-            ))}
+        <div className="flex flex-col gap-4 flex-grow">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 min-h-[400px] max-h-[600px] overflow-y-auto p-4">
+            {events.map((event, index) => {
+              let eventClasses = "p-3 rounded-lg mb-2 text-sm font-mono";
+              
+              if (event.type === 'received') {
+                eventClasses += " bg-white border border-gray-100 shadow-sm";
+              } else if (event.type === 'sent') {
+                eventClasses += " bg-indigo-50 border border-indigo-100";
+              } else if (event.type === 'system') {
+                eventClasses += " bg-gray-50 border border-gray-100 text-gray-600";
+              }
+              
+              return (
+                <div key={index} className={eventClasses}>
+                  {typeof event.message === 'string' ? (
+                    <div>{event.message}</div>
+                  ) : event.type === 'received' ? (
+                    <ServerMessageComponent message={event.message as ServerMessage} />
+                  ) : (
+                    <pre className="whitespace-pre-wrap">{JSON.stringify(event.message, null, 2)}</pre>
+                  )}
+                </div>
+              );
+            })}
             <div ref={eventsEndRef} />
           </div>
 
           {isConnected && (
-            <div className="response-form">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
               <ResponseForm 
                 lastMessage={lastServerMessage}
                 onSubmit={sendResponse}
