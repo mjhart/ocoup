@@ -875,6 +875,10 @@ end = struct
     module Challenge_notification = struct
       type query = [ `Challenge of Player_id.t * bool ] [@@deriving yojson]
     end
+
+    module Player_responded_notification = struct
+      type query = [ `Player_responded of Player_id.t ] [@@deriving yojson]
+    end
   end
 
   type t = {
@@ -908,16 +912,30 @@ end = struct
     in
     return response
 
-  let choose_foreign_aid_response t ~visible_game_state:_ () ~cancelled_reason:_
-      =
+  let choose_foreign_aid_response t ~visible_game_state:_ () ~cancelled_reason =
     let query =
       `Choose_foreign_aid_response
       |> Protocol.Choose_foreign_aid_response.yojson_of_query
     in
     let%bind () = write_to_client t query in
+    upon cancelled_reason (function
+        | Cancelled_reason.Other_player_responded player_id ->
+        print_endline "HERE";
+
+        let query =
+          `Player_responded player_id
+          |> Protocol.Player_responded_notification.yojson_of_query
+        in
+        write_to_client t query |> don't_wait_for);
     let%bind response =
-      Pipe.read_exn t.from_client
-      >>| Protocol.Choose_foreign_aid_response.response_of_yojson
+      Deferred.choose
+        [
+          choice
+            (Pipe.read_exn t.from_client
+            >>| Protocol.Choose_foreign_aid_response.response_of_yojson)
+            Fn.id;
+          choice cancelled_reason (Fn.const `Allow);
+        ]
     in
     return response
 
@@ -961,15 +979,28 @@ end = struct
     return response
 
   let offer_challenge t ~visible_game_state:_ challenging_player_id challengable
-      ~cancelled_reason:_ =
+      ~cancelled_reason =
     let query =
       `Offer_challenge (challenging_player_id, challengable)
       |> Protocol.Offer_challenge.yojson_of_query
     in
     let%bind () = write_to_client t query in
+    upon cancelled_reason (function
+        | Cancelled_reason.Other_player_responded player_id ->
+        let query =
+          `Player_responded player_id
+          |> Protocol.Player_responded_notification.yojson_of_query
+        in
+        write_to_client t query |> don't_wait_for);
     let%bind response =
-      Pipe.read_exn t.from_client
-      >>| Protocol.Offer_challenge.response_of_yojson
+      Deferred.choose
+        [
+          choice
+            (Pipe.read_exn t.from_client
+            >>| Protocol.Offer_challenge.response_of_yojson)
+            Fn.id;
+          choice cancelled_reason (Fn.const `No_challenge);
+        ]
     in
     return response
 
