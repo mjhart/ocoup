@@ -11,7 +11,7 @@ open! Async
 (* The characters (and cards) available in the game *)
 module Card = struct
   type t = Duke | Assassin | Captain | Ambassador | Contessa
-  [@@deriving equal, sexp]
+  [@@deriving equal, sexp, yojson]
 
   let to_string = function
     | Duke -> "Duke"
@@ -22,13 +22,15 @@ module Card = struct
 end
 
 module Player_id : sig
-  type t [@@deriving sexp, equal, compare]
+  type t [@@deriving sexp, equal, compare, yojson]
 
   val of_int : int -> t
   val to_int : t -> int
   val to_string : t -> string
 end = struct
-  type t = int [@@deriving sexp, equal, compare]
+  open Ppx_yojson_conv_lib.Yojson_conv.Primitives
+
+  type t = int [@@deriving sexp, equal, compare, yojson]
 
   let of_int = Fn.id
   let to_int = Fn.id
@@ -501,7 +503,7 @@ end = struct
 
   let headers =
     Lazy.from_fun (fun () ->
-        Http.Header.of_list
+        Cohttp.Header.of_list
           [
             ("Content-Type", "application/json");
             ( "Authorization",
@@ -782,6 +784,222 @@ end = struct
     return ()
 end
 
+module Websocket_player_io : sig
+  include Player_io_S
+
+  val create :
+    reader:Yojson.Safe.t Pipe.Reader.t -> writer:string Pipe.Writer.t -> t
+end = struct
+  module Protocol = struct
+    open Ppx_yojson_conv_lib.Yojson_conv.Primitives
+
+    module Action = struct
+      type t =
+        [ `Assassinate of Player_id.t
+        | `Coup of Player_id.t
+        | `Exchange
+        | `Foreign_aid
+        | `Income
+        | `Steal of Player_id.t
+        | `Tax ]
+      [@@deriving yojson]
+    end
+
+    module Choose_action = struct
+      type query = [ `Choose_action ] [@@deriving yojson]
+      type response = Action.t [@@deriving yojson]
+    end
+
+    (* TODO can get [Player_id.t] from visible game state *)
+    module Choose_assasination_response = struct
+      type query = [ `Choose_assasination_response of Player_id.t ]
+      [@@deriving yojson]
+
+      type response = [ `Allow | `Block ] [@@deriving yojson]
+    end
+
+    module Choose_foreign_aid_response = struct
+      type query = [ `Choose_foreign_aid_response ] [@@deriving yojson]
+      type response = [ `Allow | `Block ] [@@deriving yojson]
+    end
+
+    module Choose_steal_response = struct
+      type query = [ `Choose_steal_response of Player_id.t ] [@@deriving yojson]
+
+      type response = [ `Allow | `Block of [ `Ambassador | `Captain ] ]
+      [@@deriving yojson]
+    end
+
+    module Choose_cards_to_return = struct
+      type query = [ `Choose_cards_to_return of Card.t list ]
+      [@@deriving yojson]
+
+      type response = Card.t * Card.t [@@deriving yojson]
+    end
+
+    module Reveal_card = struct
+      type query = [ `Reveal_card of Card.t * Card.t ] [@@deriving yojson]
+      type response = [ `Card_1 | `Card_2 ] [@@deriving yojson]
+    end
+
+    module Offer_challenge = struct
+      type query =
+        [ `Offer_challenge of
+          Player_id.t
+          * [ `Tax
+            | `Assassinate of Player_id.t
+            | `Steal of Player_id.t
+            | `Exchange
+            | `Block_assassination
+            | `Block_steal of [ `Captain | `Ambassador ]
+            | `Block_foreign_aid ] ]
+      [@@deriving yojson]
+
+      type response = [ `No_challenge | `Challenge ] [@@deriving yojson]
+    end
+
+    module Action_choice_notification = struct
+      type query = [ `Action_chosen of Player_id.t * Action.t ]
+      [@@deriving yojson]
+    end
+
+    module Lost_influence_notification = struct
+      type query = [ `Lost_influence of Player_id.t * Card.t ]
+      [@@deriving yojson]
+    end
+
+    module New_card_notification = struct
+      type query = [ `New_card of Card.t ] [@@deriving yojson]
+    end
+
+    module Challenge_notification = struct
+      type query = [ `Challenge of Player_id.t * bool ] [@@deriving yojson]
+    end
+  end
+
+  type t = {
+    to_client : string Pipe.Writer.t;
+    from_client : Yojson.Safe.t Pipe.Reader.t;
+  }
+
+  let create ~reader ~writer = { to_client = writer; from_client = reader }
+
+  let write_to_client t query =
+    Pipe.write t.to_client (Yojson.Safe.to_string query)
+
+  let choose_action t ~visible_game_state:_ =
+    let query = `Choose_action |> Protocol.Choose_action.yojson_of_query in
+    let%bind () = write_to_client t query in
+    let%bind response =
+      Pipe.read_exn t.from_client >>| Protocol.Choose_action.response_of_yojson
+    in
+    return response
+
+  let choose_assasination_response t ~visible_game_state:_
+      ~asassinating_player_id =
+    let query =
+      `Choose_assasination_response asassinating_player_id
+      |> Protocol.Choose_assasination_response.yojson_of_query
+    in
+    let%bind () = write_to_client t query in
+    let%bind response =
+      Pipe.read_exn t.from_client
+      >>| Protocol.Choose_assasination_response.response_of_yojson
+    in
+    return response
+
+  let choose_foreign_aid_response t ~visible_game_state:_ () ~cancelled_reason:_
+      =
+    let query =
+      `Choose_foreign_aid_response
+      |> Protocol.Choose_foreign_aid_response.yojson_of_query
+    in
+    let%bind () = write_to_client t query in
+    let%bind response =
+      Pipe.read_exn t.from_client
+      >>| Protocol.Choose_foreign_aid_response.response_of_yojson
+    in
+    return response
+
+  let choose_steal_response t ~visible_game_state:_ ~stealing_player_id =
+    let query =
+      `Choose_steal_response stealing_player_id
+      |> Protocol.Choose_steal_response.yojson_of_query
+    in
+    let%bind () = write_to_client t query in
+    let%bind response =
+      Pipe.read_exn t.from_client
+      >>| Protocol.Choose_steal_response.response_of_yojson
+    in
+    return response
+
+  let choose_cards_to_return t ~visible_game_state:_ card_1 card_2 hand =
+    let query =
+      `Choose_cards_to_return
+        ([ card_1; card_2 ]
+        @
+        match hand with
+        | Hand.Both (card_1, card_2) -> [ card_1; card_2 ]
+        | Hand.One { hidden; revealed = _ } -> [ hidden ])
+      |> Protocol.Choose_cards_to_return.yojson_of_query
+    in
+    let%bind () = write_to_client t query in
+    let%bind response =
+      Pipe.read_exn t.from_client
+      >>| Protocol.Choose_cards_to_return.response_of_yojson
+    in
+    return response
+
+  let reveal_card t ~visible_game_state:_ ~card_1 ~card_2 =
+    let query =
+      `Reveal_card (card_1, card_2) |> Protocol.Reveal_card.yojson_of_query
+    in
+    let%bind () = write_to_client t query in
+    let%bind response =
+      Pipe.read_exn t.from_client >>| Protocol.Reveal_card.response_of_yojson
+    in
+    return response
+
+  let offer_challenge t ~visible_game_state:_ challenging_player_id challengable
+      ~cancelled_reason:_ =
+    let query =
+      `Offer_challenge (challenging_player_id, challengable)
+      |> Protocol.Offer_challenge.yojson_of_query
+    in
+    let%bind () = write_to_client t query in
+    let%bind response =
+      Pipe.read_exn t.from_client
+      >>| Protocol.Offer_challenge.response_of_yojson
+    in
+    return response
+
+  let notify_of_action_choice t player_id action =
+    let query =
+      `Action_chosen (player_id, action)
+      |> Protocol.Action_choice_notification.yojson_of_query
+    in
+    let%bind () = write_to_client t query in
+    return ()
+
+  let notify_of_lost_influence t player_id card =
+    let query =
+      `Lost_influence (player_id, card)
+      |> Protocol.Lost_influence_notification.yojson_of_query
+    in
+    let%bind () = write_to_client t query in
+    return ()
+
+  let notify_of_new_card t card =
+    let query =
+      `New_card card |> Protocol.New_card_notification.yojson_of_query
+    in
+    let%bind () = write_to_client t query in
+    return ()
+
+  let notify_of_challenge _t ~challenging_player_id:_ ~has_required_card:_ =
+    return ()
+end
+
 module Player_io : sig
   type t
 
@@ -794,10 +1012,14 @@ module Player_io : sig
     t Deferred.t
 
   val cli : Player_id.t -> t Deferred.t
+  val create : (module Player_io_S with type t = 'a) -> 'a -> t
 
   include Player_io_S with type t := t
 end = struct
   type t = Packed : (module Player_io_S with type t = 'a) * 'a -> t
+
+  let create (type a) (module M : Player_io_S with type t = a) implementation =
+    Packed ((module M), implementation)
 
   let llm id ~card_1 ~card_2 ~other_players ~model =
     let (module M) =
@@ -978,9 +1200,12 @@ module Game_state = struct
 
   let num_players = 3
 
-  let create_player id card_1 card_2 =
-    match Player_id.to_int id with
-    | (1 | 2 | 3) as i ->
+  let create_player ?create_ws_player_io id card_1 card_2 =
+    match (create_ws_player_io, Player_id.to_int id) with
+    | (Some create_player_io, 2) as _i ->
+        let%map player_io = create_player_io id card_1 card_2 in
+        { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
+    | None, ((1 | 2 | 3) as i) ->
         let other_players =
           List.range 0 (num_players - 1)
           |> List.filter ~f:(fun i -> i <> Player_id.to_int id)
@@ -995,13 +1220,12 @@ module Game_state = struct
         let%map player_io =
           Player_io.llm id ~card_1 ~card_2 ~other_players ~model
         in
-
         { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
     | _ ->
         let%map player_io = Player_io.cli id in
         { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
 
-  let init () =
+  let init ?create_ws_player_io () =
     let deck =
       Random.self_init ();
       let rand = fun () -> Random.bits () in
@@ -1017,7 +1241,7 @@ module Game_state = struct
     let%map players =
       Deferred.List.mapi ~how:`Sequential player_cards
         ~f:(fun id (card_1, card_2) ->
-          create_player (Player_id.of_int id) card_1 card_2)
+          create_player ?create_ws_player_io (Player_id.of_int id) card_1 card_2)
     in
     let deck =
       List.concat_map remaining_cards ~f:(fun (carrd_1, card_2) ->
@@ -1423,15 +1647,113 @@ let take_turn_result game_state =
 let take_turn game_state =
   print_newline ();
   (* print_s [%sexp (game_state : Game_state.t)]; *)
-  (* print_endline (Game_state.to_string_pretty game_state); *)
+  print_endline (Game_state.to_string_pretty game_state);
   let _ = Game_state.to_string_pretty in
   match%bind take_turn_result game_state with
   | Ok game_state' -> return (`Repeat (Game_state.end_turn game_state'))
   | Error final_game_state -> return (`Finished final_game_state)
 
-let run_game () =
-  let%bind game_state = Game_state.init () in
+let run_game ?game_state () =
+  let%bind game_state =
+    match game_state with
+    | Some game_state -> return game_state
+    | None -> Game_state.init ()
+  in
   let%map final_game_state =
     Deferred.repeat_until_finished game_state take_turn
   in
   print_s [%message "Game over" (final_game_state : Game_state.t)]
+
+module Server = struct
+  let port = 8080
+
+  (* module State = struct
+    type t = { games : Game_state.t String.Table.t }
+
+    let create () = { games = String.Table.create () }
+
+    let _add_game ~state ~game_id ~game_state =
+      Hashtbl.set state.games ~key:game_id ~data:game_state
+  end *)
+
+  let not_found_response =
+    lazy
+      ( Cohttp.Response.make ~status:`Not_found (),
+        Cohttp_async.Body.of_string "Not found" )
+
+  module Create_game = struct
+    (* module Response = struct
+      type t = { game_id : string }
+
+      (* let to_json t = `Assoc [ ("game_id", `String t.game_id) ] *)
+    end *)
+
+    let handle ~body:_ _inet _request =
+      `Response
+        ( Cohttp.Response.make ~status:`OK (),
+          Cohttp_async.Body.of_string "game created" )
+      |> return
+  end
+
+  let run_server () =
+    let non_ws_request ~body:_ _inet _request =
+      Lazy.force not_found_response |> return
+    in
+
+    let games_handler ~body:_ _inet _request =
+      `Response
+        ( Cohttp.Response.make ~status:`OK (),
+          Cohttp_async.Body.of_string "games" )
+      |> return
+    in
+
+    let ws_handler ~game_id:_ =
+      (* let _game_state = Hashtbl.find_exn games game_id in *)
+      Cohttp_async_websocket.Server.create ~non_ws_request
+        (fun ~inet:_ ~subprotocol:_ _request ->
+          print_endline "on request";
+          Cohttp_async_websocket.Server.On_connection.create (fun websocket ->
+              print_endline "on connection create";
+              let reader, writer = Websocket.pipes websocket in
+
+              don't_wait_for
+                (Pipe.iter_without_pushback reader ~f:(fun message ->
+                     print_endline message));
+
+              let player_io =
+                Websocket_player_io.create
+                  ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
+                  ~writer
+              in
+              let%bind game_state =
+                Game_state.init
+                  ~create_ws_player_io:(fun _id _card_1 _card_2 ->
+                    return
+                      (Player_io.create (module Websocket_player_io) player_io))
+                  ()
+              in
+              let%bind () = run_game ~game_state () in
+              return ())
+          |> Deferred.return)
+    in
+
+    let%bind server =
+      (* let state = State.create () in *)
+      Cohttp_async.Server.create_expert ~on_handler_error:`Raise
+        (* ~mode:(Ssl_config.conduit_mode ssl_config) *)
+        (Tcp.Where_to_listen.of_port port) (fun ~body inet request ->
+          match
+            ( Cohttp.Request.meth request,
+              Cohttp.Request.uri request |> Uri.path |> Filename.parts )
+          with
+          | `GET, [ "games" ] -> games_handler ~body inet request
+          | `POST, [ "games" ] -> Create_game.handle ~body inet request
+          | `GET, [ "games"; game_id; "player_ws" ] ->
+              ws_handler ~game_id ~body inet request
+          | _ -> ws_handler ~game_id:"" ~body inet request)
+    in
+    let%bind () = Cohttp_async.Server.close_finished server in
+    return ()
+end
+
+let run_server = Server.run_server
