@@ -810,7 +810,7 @@ end = struct
     module Action = struct
       include Action
 
-      let yojson_of_t = function
+      let yojson_of_t : t -> Yojson.Safe.t = function
         | `Income -> `Assoc [ ("type", `String "Income") ]
         | `Foreign_aid -> `Assoc [ ("type", `String "Foreign_aid") ]
         | `Assassinate player_id ->
@@ -834,8 +834,9 @@ end = struct
               ]
         | `Tax -> `Assoc [ ("type", `String "Tax") ]
 
-      let t_of_yojson = function
+      let t_of_yojson : Yojson.Safe.t -> t = function
         | `Assoc [ ("type", `String "Income") ] -> `Income
+        | `Assoc [ ("type", `String "Tax") ] -> `Tax
         | `Assoc [ ("type", `String "Foreign_aid") ] -> `Foreign_aid
         | `Assoc
             [ ("type", `String "Assassinate"); ("player_id", `Int player_id) ]
@@ -844,7 +845,7 @@ end = struct
         | `Assoc [ ("type", `String "Coup"); ("player_id", `Int player_id) ] ->
             `Coup (Player_id.of_int player_id)
         | `Assoc [ ("type", `String "Exchange") ] -> `Exchange
-        | _ -> failwith "Invalid action"
+        | _ -> `Income
     end
 
     module Allow_or_block = struct
@@ -853,7 +854,7 @@ end = struct
       let t_of_yojson : Yojson.Safe.t -> t = function
         | `Assoc [ ("type", `String "Allow") ] -> `Allow
         | `Assoc [ ("type", `String "Block") ] -> `Block
-        | _ -> failwith "Invalid allow or block"
+        | _ -> `Allow
     end
 
     module Visible_game_state = struct
@@ -1963,10 +1964,12 @@ module Server = struct
           Cohttp_async_websocket.Server.On_connection.create (fun websocket ->
               print_endline "on connection create";
               let reader, writer = Websocket.pipes websocket in
-
-              (* don't_wait_for
-                (Pipe.iter_without_pushback reader ~f:(fun message ->
-                     print_endline message)); *)
+              let reader, debugging_fork =
+                Pipe.fork reader ~pushback_uses:`Both_consumers
+              in
+              don't_wait_for
+                (Pipe.iter_without_pushback debugging_fork ~f:(fun message ->
+                     print_endline message));
               let player_io =
                 Websocket_player_io.create
                   ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
