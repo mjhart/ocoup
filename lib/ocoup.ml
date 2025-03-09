@@ -11,7 +11,7 @@ open! Async
 (* The characters (and cards) available in the game *)
 module Card = struct
   type t = Duke | Assassin | Captain | Ambassador | Contessa
-  [@@deriving equal, sexp, yojson]
+  [@@deriving equal, sexp]
 
   let to_string = function
     | Duke -> "Duke"
@@ -19,6 +19,14 @@ module Card = struct
     | Captain -> "Captain"
     | Ambassador -> "Ambassador"
     | Contessa -> "Contessa"
+
+  let of_string = function
+    | "Duke" -> Duke
+    | "Assassin" -> Assassin
+    | "Captain" -> Captain
+    | "Ambassador" -> Ambassador
+    | "Contessa" -> Contessa
+    | _ -> failwith "Invalid card"
 end
 
 module Player_id : sig
@@ -791,93 +799,226 @@ module Websocket_player_io : sig
     reader:Yojson.Safe.t Pipe.Reader.t -> writer:string Pipe.Writer.t -> t
 end = struct
   module Protocol = struct
-    open Ppx_yojson_conv_lib.Yojson_conv.Primitives
+    module Card = struct
+      include Card
+
+      let yojson_of_t card = `String (to_string card)
+    end
 
     module Action = struct
-      type t =
-        [ `Assassinate of Player_id.t
-        | `Coup of Player_id.t
-        | `Exchange
-        | `Foreign_aid
-        | `Income
-        | `Steal of Player_id.t
-        | `Tax ]
-      [@@deriving yojson]
+      include Action
+
+      let yojson_of_t = function
+        | `Income -> `Assoc [ ("type", `String "Income") ]
+        | `Foreign_aid -> `Assoc [ ("type", `String "Foreign_aid") ]
+        | `Assassinate player_id ->
+            `Assoc
+              [
+                ("type", `String "Assassinate");
+                ("player_id", `Int (Player_id.to_int player_id));
+              ]
+        | `Coup player_id ->
+            `Assoc
+              [
+                ("type", `String "Coup");
+                ("player_id", `Int (Player_id.to_int player_id));
+              ]
+        | `Exchange -> `Assoc [ ("type", `String "Exchange") ]
+        | `Steal player_id ->
+            `Assoc
+              [
+                ("type", `String "Steal");
+                ("player_id", `Int (Player_id.to_int player_id));
+              ]
+        | `Tax -> `Assoc [ ("type", `String "Tax") ]
+
+      let t_of_yojson = function
+        | `Assoc [ ("type", `String "Income") ] -> `Income
+        | `Assoc [ ("type", `String "Foreign_aid") ] -> `Foreign_aid
+        | `Assoc
+            [ ("type", `String "Assassinate"); ("player_id", `Int player_id) ]
+          ->
+            `Assassinate (Player_id.of_int player_id)
+        | `Assoc [ ("type", `String "Coup"); ("player_id", `Int player_id) ] ->
+            `Coup (Player_id.of_int player_id)
+        | `Assoc [ ("type", `String "Exchange") ] -> `Exchange
+        | _ -> failwith "Invalid action"
+    end
+
+    module Allow_or_block = struct
+      type t = [ `Allow | `Block ]
+
+      let t_of_yojson : Yojson.Safe.t -> t = function
+        | `Assoc [ ("type", `String "Allow") ] -> `Allow
+        | `Assoc [ ("type", `String "Block") ] -> `Block
+        | _ -> failwith "Invalid allow or block"
+    end
+
+    module Challengable = struct
+      include Challengable
+
+      let yojson_of_t : t -> Yojson.Safe.t = function
+        | `Tax -> `Assoc [ ("type", `String "Tax") ]
+        | `Assassinate player_id ->
+            `Assoc
+              [
+                ("type", `String "Assassinate");
+                ("player_id", `Int (Player_id.to_int player_id));
+              ]
+        | `Exchange -> `Assoc [ ("type", `String "Exchange") ]
+        | `Steal player_id ->
+            `Assoc
+              [
+                ("type", `String "Steal");
+                ("player_id", `Int (Player_id.to_int player_id));
+              ]
+        | `Block_assassination ->
+            `Assoc [ ("type", `String "Block_assassination") ]
+        | `Block_steal blocking_card ->
+            let blocking_card =
+              match blocking_card with
+              | `Ambassador -> "Ambassador"
+              | `Captain -> "Captain"
+            in
+            `Assoc
+              [
+                ("type", `String "Block_steal");
+                ("blocking_card", `String blocking_card);
+              ]
+        | `Block_foreign_aid -> `Assoc [ ("type", `String "Block_foreign_aid") ]
     end
 
     module Choose_action = struct
-      type query = [ `Choose_action ] [@@deriving yojson]
-      type response = Action.t [@@deriving yojson]
+      let query = `Assoc [ ("type", `String "Choose_action") ]
+      let response_of_yojson = Action.t_of_yojson
     end
 
     (* TODO can get [Player_id.t] from visible game state *)
     module Choose_assasination_response = struct
-      type query = [ `Choose_assasination_response of Player_id.t ]
-      [@@deriving yojson]
+      let create_query player_id =
+        `Assoc
+          [
+            ("type", `String "Choose_assasination_response");
+            ("player_id", Player_id.yojson_of_t player_id);
+          ]
 
-      type response = [ `Allow | `Block ] [@@deriving yojson]
+      let response_of_yojson = Allow_or_block.t_of_yojson
     end
 
     module Choose_foreign_aid_response = struct
-      type query = [ `Choose_foreign_aid_response ] [@@deriving yojson]
-      type response = [ `Allow | `Block ] [@@deriving yojson]
+      let create_query () =
+        `Assoc [ ("type", `String "Choose_foreign_aid_response") ]
+
+      let response_of_yojson = Allow_or_block.t_of_yojson
     end
 
     module Choose_steal_response = struct
-      type query = [ `Choose_steal_response of Player_id.t ] [@@deriving yojson]
-
       type response = [ `Allow | `Block of [ `Ambassador | `Captain ] ]
-      [@@deriving yojson]
+
+      let create_query : Player_id.t -> Yojson.Safe.t =
+       fun player_id ->
+        `Assoc
+          [
+            ("type", `String "Choose_steal_response");
+            ("player_id", Player_id.yojson_of_t player_id);
+          ]
+
+      let response_of_yojson : Yojson.Safe.t -> response = function
+        | `Assoc [ ("type", `String "Allow") ] -> `Allow
+        | `Assoc [ ("type", `String "Block"); ("card", `String "Ambassador") ]
+          ->
+            `Block `Ambassador
+        | `Assoc [ ("type", `String "Block"); ("card", `String "Captain") ] ->
+            `Block `Captain
+        | _ -> failwith "Invalid choose steal response"
     end
 
     module Choose_cards_to_return = struct
-      type query = [ `Choose_cards_to_return of Card.t list ]
-      [@@deriving yojson]
+      let create_query cards =
+        `Assoc
+          [
+            ("type", `String "Choose_cards_to_return");
+            ("cards", `List (List.map ~f:Card.yojson_of_t cards));
+          ]
 
-      type response = Card.t * Card.t [@@deriving yojson]
+      let response_of_yojson = function
+        | `List [ `String card_1; `String card_2 ] ->
+            (Card.of_string card_1, Card.of_string card_2)
+        | _ -> failwith "Invalid choose cards to return response"
     end
 
     module Reveal_card = struct
-      type query = [ `Reveal_card of Card.t * Card.t ] [@@deriving yojson]
-      type response = [ `Card_1 | `Card_2 ] [@@deriving yojson]
+      let create_query card_1 card_2 =
+        `Assoc
+          [
+            ("type", `String "Reveal_card");
+            ("card_1", Card.yojson_of_t card_1);
+            ("card_2", Card.yojson_of_t card_2);
+          ]
+
+      let response_of_yojson = function
+        | `Assoc [ ("type", `String "Card_1") ] -> `Card_1
+        | `Assoc [ ("type", `String "Card_2") ] -> `Card_2
+        | _ -> failwith "Invalid reveal card response"
     end
 
     module Offer_challenge = struct
-      type query =
-        [ `Offer_challenge of
-          Player_id.t
-          * [ `Tax
-            | `Assassinate of Player_id.t
-            | `Steal of Player_id.t
-            | `Exchange
-            | `Block_assassination
-            | `Block_steal of [ `Captain | `Ambassador ]
-            | `Block_foreign_aid ] ]
-      [@@deriving yojson]
+      let create_query acting_player_id challengable =
+        `Assoc
+          [
+            ("type", `String "Offer_challenge");
+            ("acting_player_id", Player_id.yojson_of_t acting_player_id);
+            ("action", Challengable.yojson_of_t challengable);
+          ]
 
-      type response = [ `No_challenge | `Challenge ] [@@deriving yojson]
+      let response_of_yojson = function
+        | `Assoc [ ("type", `String "No_challenge") ] -> `No_challenge
+        | `Assoc [ ("type", `String "Challenge") ] -> `Challenge
+        | _ -> failwith "Invalid offer challenge response"
     end
 
     module Action_choice_notification = struct
-      type query = [ `Action_chosen of Player_id.t * Action.t ]
-      [@@deriving yojson]
+      let create_query player_id action =
+        `Assoc
+          [
+            ("type", `String "Action_chosen");
+            ("player_id", Player_id.yojson_of_t player_id);
+            ("action", Action.yojson_of_t action);
+          ]
     end
 
     module Lost_influence_notification = struct
-      type query = [ `Lost_influence of Player_id.t * Card.t ]
-      [@@deriving yojson]
+      let create_query player_id card =
+        `Assoc
+          [
+            ("type", `String "Lost_influence");
+            ("player_id", Player_id.yojson_of_t player_id);
+            ("card", Card.yojson_of_t card);
+          ]
     end
 
     module New_card_notification = struct
-      type query = [ `New_card of Card.t ] [@@deriving yojson]
+      let create_query card =
+        `Assoc [ ("type", `String "New_card"); ("card", Card.yojson_of_t card) ]
     end
 
     module Challenge_notification = struct
-      type query = [ `Challenge of Player_id.t * bool ] [@@deriving yojson]
+      let create_query challenging_player_id has_required_card =
+        `Assoc
+          [
+            ("type", `String "Challenge");
+            ("player_id", Player_id.yojson_of_t challenging_player_id);
+            ("has_required_card", `Bool has_required_card);
+          ]
     end
 
     module Player_responded_notification = struct
-      type query = [ `Player_responded of Player_id.t ] [@@deriving yojson]
+      let create_query player_id =
+        `Assoc
+          [
+            ("type", `String "Player_responded");
+            ("player_id", Player_id.yojson_of_t player_id);
+          ]
     end
   end
 
@@ -892,8 +1033,7 @@ end = struct
     Pipe.write t.to_client (Yojson.Safe.to_string query)
 
   let choose_action t ~visible_game_state:_ =
-    let query = `Choose_action |> Protocol.Choose_action.yojson_of_query in
-    let%bind () = write_to_client t query in
+    let%bind () = write_to_client t Protocol.Choose_action.query in
     let%bind response =
       Pipe.read_exn t.from_client >>| Protocol.Choose_action.response_of_yojson
     in
@@ -902,8 +1042,7 @@ end = struct
   let choose_assasination_response t ~visible_game_state:_
       ~asassinating_player_id =
     let query =
-      `Choose_assasination_response asassinating_player_id
-      |> Protocol.Choose_assasination_response.yojson_of_query
+      Protocol.Choose_assasination_response.create_query asassinating_player_id
     in
     let%bind () = write_to_client t query in
     let%bind response =
@@ -913,18 +1052,12 @@ end = struct
     return response
 
   let choose_foreign_aid_response t ~visible_game_state:_ () ~cancelled_reason =
-    let query =
-      `Choose_foreign_aid_response
-      |> Protocol.Choose_foreign_aid_response.yojson_of_query
-    in
+    let query = Protocol.Choose_foreign_aid_response.create_query () in
     let%bind () = write_to_client t query in
     upon cancelled_reason (function
         | Cancelled_reason.Other_player_responded player_id ->
-        print_endline "HERE";
-
         let query =
-          `Player_responded player_id
-          |> Protocol.Player_responded_notification.yojson_of_query
+          Protocol.Player_responded_notification.create_query player_id
         in
         write_to_client t query |> don't_wait_for);
     let%bind response =
@@ -941,8 +1074,7 @@ end = struct
 
   let choose_steal_response t ~visible_game_state:_ ~stealing_player_id =
     let query =
-      `Choose_steal_response stealing_player_id
-      |> Protocol.Choose_steal_response.yojson_of_query
+      Protocol.Choose_steal_response.create_query stealing_player_id
     in
     let%bind () = write_to_client t query in
     let%bind response =
@@ -953,13 +1085,12 @@ end = struct
 
   let choose_cards_to_return t ~visible_game_state:_ card_1 card_2 hand =
     let query =
-      `Choose_cards_to_return
+      Protocol.Choose_cards_to_return.create_query
         ([ card_1; card_2 ]
         @
         match hand with
         | Hand.Both (card_1, card_2) -> [ card_1; card_2 ]
         | Hand.One { hidden; revealed = _ } -> [ hidden ])
-      |> Protocol.Choose_cards_to_return.yojson_of_query
     in
     let%bind () = write_to_client t query in
     let%bind response =
@@ -969,9 +1100,7 @@ end = struct
     return response
 
   let reveal_card t ~visible_game_state:_ ~card_1 ~card_2 =
-    let query =
-      `Reveal_card (card_1, card_2) |> Protocol.Reveal_card.yojson_of_query
-    in
+    let query = Protocol.Reveal_card.create_query card_1 card_2 in
     let%bind () = write_to_client t query in
     let%bind response =
       Pipe.read_exn t.from_client >>| Protocol.Reveal_card.response_of_yojson
@@ -981,15 +1110,13 @@ end = struct
   let offer_challenge t ~visible_game_state:_ challenging_player_id challengable
       ~cancelled_reason =
     let query =
-      `Offer_challenge (challenging_player_id, challengable)
-      |> Protocol.Offer_challenge.yojson_of_query
+      Protocol.Offer_challenge.create_query challenging_player_id challengable
     in
     let%bind () = write_to_client t query in
     upon cancelled_reason (function
         | Cancelled_reason.Other_player_responded player_id ->
         let query =
-          `Player_responded player_id
-          |> Protocol.Player_responded_notification.yojson_of_query
+          Protocol.Player_responded_notification.create_query player_id
         in
         write_to_client t query |> don't_wait_for);
     let%bind response =
@@ -1006,28 +1133,29 @@ end = struct
 
   let notify_of_action_choice t player_id action =
     let query =
-      `Action_chosen (player_id, action)
-      |> Protocol.Action_choice_notification.yojson_of_query
+      Protocol.Action_choice_notification.create_query player_id action
     in
     let%bind () = write_to_client t query in
     return ()
 
   let notify_of_lost_influence t player_id card =
     let query =
-      `Lost_influence (player_id, card)
-      |> Protocol.Lost_influence_notification.yojson_of_query
+      Protocol.Lost_influence_notification.create_query player_id card
     in
     let%bind () = write_to_client t query in
     return ()
 
   let notify_of_new_card t card =
-    let query =
-      `New_card card |> Protocol.New_card_notification.yojson_of_query
-    in
+    let query = Protocol.New_card_notification.create_query card in
     let%bind () = write_to_client t query in
     return ()
 
-  let notify_of_challenge _t ~challenging_player_id:_ ~has_required_card:_ =
+  let notify_of_challenge t ~challenging_player_id ~has_required_card =
+    let query =
+      Protocol.Challenge_notification.create_query challenging_player_id
+        has_required_card
+    in
+    let%bind () = write_to_client t query in
     return ()
 end
 
