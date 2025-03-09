@@ -1732,8 +1732,15 @@ module Server = struct
                       (Player_io.create (module Websocket_player_io) player_io))
                   ()
               in
-              let%bind () = run_game ~game_state () in
-              return ())
+              match%bind
+                Monitor.try_with ~extract_exn:true (fun () ->
+                    run_game ~game_state ())
+              with
+              | Ok () -> return ()
+              | Error e ->
+                  print_endline "Error running game";
+                  print_endline (Exn.to_string e);
+                  return ())
           |> Deferred.return)
     in
 
