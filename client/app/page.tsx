@@ -63,50 +63,77 @@ export default function Home() {
     .pop() || null;
 
   return (
-    <main className="min-h-screen p-4 max-w-4xl mx-auto md:p-8">
+    <main className="main">
       <div className="flex flex-col gap-8">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-xl font-semibold text-gray-800 md:text-3xl">Coup Game Client</h1>
-          {!isConnected && (
-            <button
-              onClick={connectWebSocket}
-              className="py-2 px-4 bg-indigo-600 text-white border-none rounded-lg shadow-sm transition-all duration-200 cursor-pointer text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Start Game
-            </button>
-          )}
+        <div className="header">
+          <h1 className="title">COUP-O-MATIC 3000</h1>
+          <div className="flex items-center gap-3">
+            <div className="mcm-dial"></div>
+            {!isConnected && (
+              <button
+                onClick={connectWebSocket}
+                className="btn"
+              >
+                Start Game
+              </button>
+            )}
+            {isConnected && (
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-mcm-teal animate-pulse"></div>
+                <span className="uppercase text-xs font-bold tracking-wider text-mcm-teal">Connected</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-col gap-4 flex-grow">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 min-h-[400px] max-h-[600px] overflow-y-auto p-4">
-            {events.map((event, index) => {
-              let eventClasses = "p-3 rounded-lg mb-2 text-sm font-mono";
-              
-              if (event.type === 'received') {
-                eventClasses += " bg-white border border-gray-100 shadow-sm";
-              } else if (event.type === 'sent') {
-                eventClasses += " bg-indigo-50 border border-indigo-100";
-              } else if (event.type === 'system') {
-                eventClasses += " bg-gray-50 border border-gray-100 text-gray-600";
-              }
-              
-              return (
-                <div key={index} className={eventClasses}>
-                  {typeof event.message === 'string' ? (
-                    <div>{event.message}</div>
-                  ) : event.type === 'received' ? (
-                    <ServerMessageComponent message={event.message as ServerMessage} />
-                  ) : (
-                    <pre className="whitespace-pre-wrap">{JSON.stringify(event.message, null, 2)}</pre>
-                  )}
-                </div>
-              );
-            })}
-            <div ref={eventsEndRef} />
+        <div className="content">
+          <div className="mcm-panel">
+            <div className="flex justify-between items-center mb-3 pb-2 border-b-2 border-mcm-mustard">
+              <h2 className="font-display text-xl text-mcm-navy">GAME CONSOLE</h2>
+              <div className="flex gap-2">
+                <div className="w-3 h-3 rounded-full bg-mcm-coral"></div>
+                <div className="w-3 h-3 rounded-full bg-mcm-mustard"></div>
+                <div className="w-3 h-3 rounded-full bg-mcm-teal"></div>
+              </div>
+            </div>
+            
+            <div className="bg-mcm-offwhite rounded-xl min-h-[400px] max-h-[600px] overflow-y-auto p-4 border-2 border-mcm-mustard">
+              {events.map((event, index) => {
+                let eventClasses = "event-message";
+                
+                if (event.type === 'received') {
+                  eventClasses += " received";
+                } else if (event.type === 'sent') {
+                  eventClasses += " sent";
+                } else if (event.type === 'system') {
+                  eventClasses += " system";
+                }
+                
+                return (
+                  <div key={index} className={eventClasses}>
+                    {typeof event.message === 'string' ? (
+                      <div>{event.message}</div>
+                    ) : event.type === 'received' ? (
+                      <ServerMessageComponent message={event.message as ServerMessage} />
+                    ) : (
+                      <pre className="whitespace-pre-wrap">{JSON.stringify(event.message, null, 2)}</pre>
+                    )}
+                  </div>
+                );
+              })}
+              <div ref={eventsEndRef} />
+            </div>
+            
+            <div className="mcm-control-panel">
+              <div className="mcm-dial"></div>
+              <div className="mcm-dial"></div>
+              <div className="text-xs uppercase tracking-wider text-mcm-navy font-bold">Signal Strength</div>
+            </div>
           </div>
 
           {isConnected && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <div className="mcm-panel">
+              <h2 className="font-display text-xl text-mcm-navy mb-3 pb-2 border-b-2 border-mcm-mustard">CONTROL DECK</h2>
               <ResponseForm 
                 lastMessage={lastServerMessage}
                 onSubmit={sendResponse}

@@ -24,13 +24,11 @@ function formatAction(action: Action): string {
 }
 
 function formatGameState(state: ServerMessage['visible_game_state']) {
-  if (!state) return null;
-  
   return (
     <div className="mt-2 space-y-2">
       <div>
         <strong>Your hand:</strong>{' '}
-        {state.hand.map((card: { card: Card; revealed: boolean }, i: number) => (
+        {state.hand.map((card, i) => (
           <span key={i} className="ml-2">
             {formatCard(card.card)}
             {card.revealed ? ' (revealed)' : ' (hidden)'}
@@ -41,16 +39,12 @@ function formatGameState(state: ServerMessage['visible_game_state']) {
         <strong>Your coins:</strong> {state.coins}
       </div>
       <div>
-        <strong>Active player:</strong> Player {state.active_player_id}
-      </div>
-      <div>
         <strong>Other players:</strong>
         <div className="ml-4">
-          {state.other_players.map((player: { player_id: number; coins: number; visible_card: Card | null }, i: number) => (
-            <div key={i} className={player.player_id === state.active_player_id ? "text-indigo-600 font-medium" : ""}>
+          {state.other_players.map((player, i) => (
+            <div key={i}>
               Player {player.player_id}: {player.coins} coins
               {player.visible_card && ` - Revealed: ${formatCard(player.visible_card)}`}
-              {player.player_id === state.active_player_id && " (Active)"}
             </div>
           ))}
         </div>

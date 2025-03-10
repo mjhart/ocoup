@@ -9,7 +9,7 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
   if (!lastMessage) return null;
 
   // Define Tailwind classes for buttons
-  const btnClass = "py-2 px-4 bg-indigo-600 text-white border-none rounded-lg shadow-sm transition-all duration-200 cursor-pointer text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed";
+  const btnClass = "py-3 px-5 bg-mcm-coral text-white border-none rounded-xl shadow-mcm transition-all duration-200 cursor-pointer text-xs font-bold uppercase tracking-wider hover:bg-mcm-orange hover:shadow-mcm-lg disabled:opacity-50 disabled:cursor-not-allowed";
 
   switch (lastMessage.type) {
     case 'Choose_action':
@@ -43,7 +43,7 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
           </div>
           
           <div className="space-y-2">
-            <div className="font-medium">Actions requiring a target:</div>
+            <div className="font-bold uppercase tracking-wider text-xs text-mcm-navy border-b border-mcm-mustard pb-2 mb-2">Actions requiring a target:</div>
             {lastMessage.visible_game_state.other_players.map(player => (
               <div key={player.player_id} className="flex gap-2">
                 <button
@@ -66,9 +66,11 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
                 >
                   Steal
                 </button>
-                <span className={`ml-2 ${player.player_id === lastMessage.visible_game_state.active_player_id ? "text-indigo-600 font-medium" : "text-gray-600"}`}>
+                <span className={`ml-2 ${player.player_id === lastMessage.visible_game_state.active_player_id ? "text-mcm-coral font-bold" : "text-mcm-navy"}`}>
                   Player {player.player_id} ({player.coins} coins)
-                  {player.player_id === lastMessage.visible_game_state.active_player_id && " (Active)"}
+                  {player.player_id === lastMessage.visible_game_state.active_player_id && 
+                    <span className="ml-1 text-xs uppercase tracking-wider font-bold bg-mcm-orange text-white px-2 py-0.5 rounded-full">Active</span>
+                  }
                 </span>
               </div>
             ))}
