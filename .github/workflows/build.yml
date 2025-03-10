@@ -1,0 +1,96 @@
+name: Build and Deploy OCaml Server
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'server/**'
+      - '.github/workflows/build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'server/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up OCaml
+      uses: avsm/setup-ocaml@v2
+      with:
+        ocaml-compiler: 5.1.x
+        opam-repositories: |
+          default: https://github.com/ocaml/opam-repository.git
+
+    - name: Install dependencies
+      run: |
+        opam update
+        cd server
+        opam install . --deps-only --with-test --with-doc
+        opam install dune
+      
+    - name: Build project
+      run: |
+        cd server
+        opam exec -- dune build
+
+    - name: Run tests
+      run: |
+        cd server
+        opam exec -- dune runtest
+
+    - name: Create output directory
+      run: mkdir -p artifacts
+
+    - name: Copy built executable
+      run: |
+        cp $(find server/_build/default/bin -type f -name "main.exe") artifacts/ocoup
+        chmod +x artifacts/ocoup
+
+    - name: Upload built executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: ocoup-server
+        path: artifacts/ocoup
+        retention-days: 7
+
+  build-docker:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download built executable
+      uses: actions/download-artifact@v4
+      with:
+        name: ocoup-server
+        path: ./artifacts
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile.deploy
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository_owner }}/ocoup-server:latest
+          ghcr.io/${{ github.repository_owner }}/ocoup-server:${{ github.sha }}
