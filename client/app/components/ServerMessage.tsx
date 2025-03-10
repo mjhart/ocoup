@@ -1,10 +1,10 @@
-import type { ServerMessage, Card, Action } from '../types';
+import type { ServerMessage, Card, Action, Challengable } from '../types';
 
 function formatCard(card: Card): string {
   return card;
 }
 
-function formatAction(action: Action): string {
+function formatAction(action: Action | Challengable): string {
   switch (action.type) {
     case 'Income':
       return 'Income';
@@ -20,6 +20,12 @@ function formatAction(action: Action): string {
       return `Steal from player ${action.player_id}`;
     case 'Exchange':
       return 'Exchange';
+    case 'Block_assassination':
+      return 'Block assassination';
+    case 'Block_steal':
+      return `Block steal as ${action.card}`;
+    case 'Block_foreign_aid':
+      return 'Block foreign aid';
   }
 }
 

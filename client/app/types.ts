@@ -23,15 +23,30 @@ interface VisibleGameState {
   active_player_id: PlayerId;
 }
 
-// Action types
-type Action = 
+type NonChallengableAction = 
   | { type: 'Income' }
+  | { type: 'Tax' }
+  | { type: 'Exchange' };
+
+type ChallengableAction = 
   | { type: 'Foreign_aid' }
   | { type: 'Assassinate'; player_id: PlayerId }
   | { type: 'Coup'; player_id: PlayerId }
-  | { type: 'Tax' }
-  | { type: 'Steal'; player_id: PlayerId }
-  | { type: 'Exchange' };
+  | { type: 'Steal'; player_id: PlayerId };
+
+type ChallengableResponse = 
+  | { type: 'Block_assassination' }
+  | { type: 'Block_steal'; card: 'Ambassador' | 'Captain' }
+  | { type: 'Block_foreign_aid' };
+
+// Action types
+type Action = 
+  | NonChallengableAction
+  | ChallengableAction;
+
+type Challengable = 
+  | ChallengableAction
+  | ChallengableResponse;
 
 // Response types
 type AllowOrBlock = { type: 'Allow' } | { type: 'Block' };
@@ -56,7 +71,7 @@ type ServerMessage =
   | { type: 'Choose_steal_response'; player_id: PlayerId; visible_game_state: VisibleGameState }
   | { type: 'Choose_cards_to_return'; cards: Card[]; visible_game_state: VisibleGameState }
   | { type: 'Reveal_card'; card_1: Card; card_2: Card; visible_game_state: VisibleGameState }
-  | { type: 'Offer_challenge'; acting_player_id: PlayerId; action: Action; visible_game_state: VisibleGameState }
+  | { type: 'Offer_challenge'; acting_player_id: PlayerId; action: Challengable; visible_game_state: VisibleGameState }
   | { type: 'Action_chosen'; player_id: PlayerId; action: Action }
   | { type: 'Lost_influence'; player_id: PlayerId; card: Card }
   | { type: 'New_card'; card: Card }
@@ -79,6 +94,7 @@ export type {
   OtherPlayer,
   VisibleGameState,
   Action,
+  Challengable,
   AllowOrBlock,
   StealResponse,
   ChallengeResponse,
