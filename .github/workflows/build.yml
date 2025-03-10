@@ -22,7 +22,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up OCaml
-      uses: avsm/setup-ocaml@v2
+      uses: ocaml/setup-ocaml@v3
       with:
         ocaml-compiler: 5.1.x
         opam-repositories: |
@@ -33,7 +33,7 @@ jobs:
         opam update
         cd server
         opam install . --deps-only --with-test --with-doc
-        opam install dune
+        # opam install dune
       
     - name: Build project
       run: |
@@ -45,52 +45,52 @@ jobs:
         cd server
         opam exec -- dune runtest
 
-    - name: Create output directory
-      run: mkdir -p artifacts
+    # - name: Create output directory
+    #   run: mkdir -p artifacts
 
-    - name: Copy built executable
-      run: |
-        cp $(find server/_build/default/bin -type f -name "main.exe") artifacts/ocoup
-        chmod +x artifacts/ocoup
+    # - name: Copy built executable
+    #   run: |
+    #     cp server/_build/default/bin/main.exe artifacts/ocoup
+    #     chmod +x artifacts/ocoup
 
     - name: Upload built executable
       uses: actions/upload-artifact@v4
       with:
         name: ocoup-server
-        path: artifacts/ocoup
+        path: server/_build/default/bin/
         retention-days: 7
 
-  build-docker:
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  # build-docker:
+  #   runs-on: ubuntu-latest
+  #   needs: build
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
 
-    - name: Download built executable
-      uses: actions/download-artifact@v4
-      with:
-        name: ocoup-server
-        path: ./artifacts
+  #   - name: Download built executable
+  #     uses: actions/download-artifact@v4
+  #     with:
+  #       name: ocoup-server
+  #       path: ./artifacts
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+  #   - name: Set up Docker Buildx
+  #     uses: docker/setup-buildx-action@v3
 
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.repository_owner }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+  #   - name: Login to GitHub Container Registry
+  #     uses: docker/login-action@v3
+  #     with:
+  #       registry: ghcr.io
+  #       username: ${{ github.repository_owner }}
+  #       password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile.deploy
-        push: true
-        tags: |
-          ghcr.io/${{ github.repository_owner }}/ocoup-server:latest
-          ghcr.io/${{ github.repository_owner }}/ocoup-server:${{ github.sha }}
+  #   - name: Build and push Docker image
+  #     uses: docker/build-push-action@v5
+  #     with:
+  #       context: .
+  #       file: ./Dockerfile.deploy
+  #       push: true
+  #       tags: |
+  #         ghcr.io/${{ github.repository_owner }}/ocoup-server:latest
+  #         ghcr.io/${{ github.repository_owner }}/ocoup-server:${{ github.sha }}
