@@ -80,6 +80,10 @@
     @apply bg-mcm-cream border border-mcm-mustard text-mcm-brown;
   }
 
+  .event-message.disconnected {
+    @apply bg-mcm-orange border-2 border-mcm-coral text-white font-bold animate-pulse;
+  }
+
   .btn {
     @apply py-3 px-6 bg-mcm-coral text-white border-none rounded-xl shadow-mcm 
            transition-all duration-200 cursor-pointer text-sm font-bold uppercase tracking-widest

@@ -20,11 +20,19 @@ export default function Home() {
   }, [events]);
 
   const connectWebSocket = () => {
+    // Close any existing connection
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    
     const ws = new WebSocket('ws://localhost:8080');
 
     ws.onopen = () => {
       setIsConnected(true);
-      setEvents(prev => [...prev, { type: 'system', message: 'Connected to server' }]);
+      setEvents(prev => [...prev, { 
+        type: 'system', 
+        message: prev.length > 0 ? 'Reconnected to server' : 'Connected to server' 
+      }]);
     };
 
     ws.onmessage = (event) => {
@@ -36,13 +44,24 @@ export default function Home() {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setIsConnected(false);
-      setEvents(prev => [...prev, { type: 'system', message: 'Disconnected from server' }]);
+      const message = event.wasClean 
+        ? `Disconnected from server: ${event.reason || 'Connection closed cleanly'}`
+        : 'Connection lost. The server may be down or unavailable.';
+      
+      setEvents(prev => [...prev, { 
+        type: 'system', 
+        message 
+      }]);
     };
 
     ws.onerror = (error) => {
-      setEvents(prev => [...prev, { type: 'system', message: `WebSocket error: ${error}` }]);
+      setIsConnected(false);
+      setEvents(prev => [...prev, { 
+        type: 'system', 
+        message: `WebSocket error: ${error}` 
+      }]);
     };
 
     wsRef.current = ws;
@@ -74,7 +93,7 @@ export default function Home() {
                 onClick={connectWebSocket}
                 className="btn"
               >
-                Start Game
+                {events.length > 0 ? 'Reconnect' : 'Start Game'}
               </button>
             )}
             {isConnected && (
@@ -90,10 +109,15 @@ export default function Home() {
           <div className="mcm-panel">
             <div className="flex justify-between items-center mb-3 pb-2 border-b-2 border-mcm-mustard">
               <h2 className="font-display text-xl text-mcm-navy">GAME CONSOLE</h2>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
+                {!isConnected && events.length > 0 && (
+                  <div className="bg-mcm-orange px-3 py-1 rounded-full text-white uppercase text-xs font-bold tracking-wider mr-2 animate-pulse">
+                    Disconnected
+                  </div>
+                )}
                 <div className="w-3 h-3 rounded-full bg-mcm-coral"></div>
                 <div className="w-3 h-3 rounded-full bg-mcm-mustard"></div>
-                <div className="w-3 h-3 rounded-full bg-mcm-teal"></div>
+                <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-mcm-teal' : 'bg-mcm-orange'}`}></div>
               </div>
             </div>
             
@@ -107,6 +131,13 @@ export default function Home() {
                   eventClasses += " sent";
                 } else if (event.type === 'system') {
                   eventClasses += " system";
+                  
+                  // Add special styling for disconnect messages
+                  if (typeof event.message === 'string' && 
+                      (event.message.includes('Disconnected') || 
+                       event.message.includes('Connection lost'))) {
+                    eventClasses += " disconnected";
+                  }
                 }
                 
                 return (
@@ -127,7 +158,17 @@ export default function Home() {
             <div className="mcm-control-panel">
               <div className="mcm-dial"></div>
               <div className="mcm-dial"></div>
-              <div className="text-xs uppercase tracking-wider text-mcm-navy font-bold">Signal Strength</div>
+              <div className="flex-grow flex justify-between items-center">
+                <div className="text-xs uppercase tracking-wider text-mcm-navy font-bold">Signal Strength</div>
+                {!isConnected && events.length > 0 && (
+                  <button 
+                    onClick={connectWebSocket}
+                    className="text-xs uppercase tracking-wider bg-mcm-coral text-white px-3 py-1 rounded-md font-bold hover:bg-mcm-orange"
+                  >
+                    Reconnect
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
