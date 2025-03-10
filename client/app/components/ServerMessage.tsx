@@ -23,7 +23,7 @@ function formatAction(action: Action | Challengable): string {
     case 'Block_assassination':
       return 'Block assassination';
     case 'Block_steal':
-      return `Block steal as ${action.card}`;
+      return `Block steal ${action.blocking_card ? `as ${action.blocking_card}` : ''}`;
     case 'Block_foreign_aid':
       return 'Block foreign aid';
   }
@@ -124,12 +124,24 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
       );
 
     case 'Offer_challenge':
+      // Format the action being challenged
+      let actionDescription = formatAction(message.action);
+      
+      // Improve description for Block_steal with undefined card
+      if (message.action.type === 'Block_steal' && !message.action.card) {
+        actionDescription = 'Block your steal attempt';
+      }
+      
       return (
         <div>
-          <div className="font-semibold text-yellow-600">
-            Player {message.acting_player_id} is attempting: {formatAction(message.action)}
-            <br />
-            Would you like to challenge?
+          <div className="font-display text-xl font-bold uppercase tracking-wider text-mcm-orange mb-2 border-b-2 border-mcm-mustard pb-2">
+            Challenge Opportunity
+          </div>
+          <div className="text-sm font-bold uppercase tracking-wider text-mcm-navy mb-2">
+            Player {message.acting_player_id} is attempting: {actionDescription}
+          </div>
+          <div className="text-sm font-bold text-mcm-navy mb-3">
+            Would you like to challenge this action?
           </div>
           {formatGameState(message.visible_game_state)}
         </div>

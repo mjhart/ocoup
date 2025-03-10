@@ -36,7 +36,7 @@ type ChallengableAction =
 
 type ChallengableResponse = 
   | { type: 'Block_assassination' }
-  | { type: 'Block_steal'; card: 'Ambassador' | 'Captain' }
+  | { type: 'Block_steal'; blocking_card: 'Ambassador' | 'Captain' }
   | { type: 'Block_foreign_aid' };
 
 // Action types
