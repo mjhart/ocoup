@@ -20,6 +20,7 @@ interface VisibleGameState {
   hand: CardInHand[];
   coins: number;
   other_players: OtherPlayer[];
+  active_player_id: PlayerId;
 }
 
 // Action types

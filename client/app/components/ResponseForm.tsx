@@ -66,8 +66,9 @@ export function ResponseForm({ lastMessage, onSubmit }: Props) {
                 >
                   Steal
                 </button>
-                <span className="ml-2 text-gray-600">
+                <span className={`ml-2 ${player.player_id === lastMessage.visible_game_state.active_player_id ? "text-indigo-600 font-medium" : "text-gray-600"}`}>
                   Player {player.player_id} ({player.coins} coins)
+                  {player.player_id === lastMessage.visible_game_state.active_player_id && " (Active)"}
                 </span>
               </div>
             ))}

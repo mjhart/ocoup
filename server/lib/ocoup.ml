@@ -127,7 +127,12 @@ module Visible_game_state = struct
     [@@deriving sexp]
   end
 
-  type t = { hand : Hand.t; coins : int; other_players : Other_player.t list }
+  type t = {
+    hand : Hand.t;
+    coins : int;
+    other_players : Other_player.t list;
+    active_player_id : Player_id.t;
+  }
   [@@deriving sexp]
 
   let to_string_pretty t =
@@ -845,6 +850,8 @@ end = struct
         | `Assoc [ ("type", `String "Coup"); ("player_id", `Int player_id) ] ->
             `Coup (Player_id.of_int player_id)
         | `Assoc [ ("type", `String "Exchange") ] -> `Exchange
+        | `Assoc [ ("type", `String "Steal"); ("player_id", `Int player_id) ] ->
+            `Steal (Player_id.of_int player_id)
         | _ -> `Income
     end
 
@@ -861,7 +868,7 @@ end = struct
       include Visible_game_state
 
       let yojson_of_t : t -> Yojson.Safe.t =
-       fun { hand; coins; other_players } ->
+       fun { hand; coins; other_players; active_player_id } ->
         let hand =
           match hand with
           | Hand.Both (card_1, card_2) ->
@@ -908,6 +915,7 @@ end = struct
             ("hand", hand);
             ("coins", `Int coins);
             ("other_players", `List other_players);
+            ("active_player_id", Player_id.yojson_of_t active_player_id);
           ]
     end
 
@@ -1002,7 +1010,7 @@ end = struct
             `Block `Ambassador
         | `Assoc [ ("type", `String "Block"); ("card", `String "Captain") ] ->
             `Block `Captain
-        | _ -> failwith "Invalid choose steal response"
+        | _ -> `Allow
     end
 
     module Choose_cards_to_return = struct
@@ -1035,7 +1043,7 @@ end = struct
       let response_of_yojson = function
         | `Assoc [ ("type", `String "Card_1") ] -> `Card_1
         | `Assoc [ ("type", `String "Card_2") ] -> `Card_2
-        | _ -> failwith "Invalid reveal card response"
+        | _ -> `Card_1
     end
 
     module Offer_challenge = struct
@@ -1052,7 +1060,7 @@ end = struct
       let response_of_yojson = function
         | `Assoc [ ("type", `String "No_challenge") ] -> `No_challenge
         | `Assoc [ ("type", `String "Challenge") ] -> `Challenge
-        | _ -> failwith "Invalid offer challenge response"
+        | _ -> `No_challenge
     end
 
     module Action_choice_notification = struct
@@ -1103,21 +1111,48 @@ end = struct
   type t = {
     to_client : string Pipe.Writer.t;
     from_client : Yojson.Safe.t Pipe.Reader.t;
+    mutable expected_message_handler : Yojson.Safe.t Ivar.t;
   }
 
-  let create ~reader ~writer = { to_client = writer; from_client = reader }
+  let create ~reader ~writer =
+    let t =
+      {
+        to_client = writer;
+        from_client = reader;
+        expected_message_handler = Ivar.create ();
+      }
+    in
+    don't_wait_for
+      (Pipe.iter t.from_client ~f:(fun message ->
+           Ivar.fill_exn t.expected_message_handler message;
+           return ()));
+    t
 
   let write_to_client t query =
     Pipe.write t.to_client (Yojson.Safe.to_string query)
 
+  let read_from_client t f =
+    let ivar = Ivar.create () in
+    t.expected_message_handler <- ivar;
+    let%map message = Ivar.read ivar in
+    f message
+
+  let upon_next_message' t ~cancelled_reason ~on_cancel f =
+    let ivar = Ivar.create () in
+    t.expected_message_handler <- ivar;
+    choose
+      [
+        choice (Ivar.read ivar) f; choice cancelled_reason (Fn.const on_cancel);
+      ]
+
   let choose_action t ~visible_game_state =
+    let response =
+      read_from_client t Protocol.Choose_action.response_of_yojson
+    in
     let%bind () =
       write_to_client t (Protocol.Choose_action.query ~visible_game_state)
     in
-    let%bind response =
-      Pipe.read_exn t.from_client >>| Protocol.Choose_action.response_of_yojson
-    in
-    return response
+    response
 
   let choose_assasination_response t ~visible_game_state ~asassinating_player_id
       =
@@ -1125,47 +1160,43 @@ end = struct
       Protocol.Choose_assasination_response.create_query asassinating_player_id
         ~visible_game_state
     in
-    let%bind () = write_to_client t query in
-    let%bind response =
-      Pipe.read_exn t.from_client
-      >>| Protocol.Choose_assasination_response.response_of_yojson
+    let response =
+      read_from_client t
+        Protocol.Choose_assasination_response.response_of_yojson
     in
-    return response
+    let%bind () = write_to_client t query in
+    response
 
   let choose_foreign_aid_response t ~visible_game_state () ~cancelled_reason =
     let query =
       Protocol.Choose_foreign_aid_response.create_query ~visible_game_state ()
     in
-    let%bind () = write_to_client t query in
+
     upon cancelled_reason (function
         | Cancelled_reason.Other_player_responded player_id ->
         let query =
           Protocol.Player_responded_notification.create_query player_id
         in
         write_to_client t query |> don't_wait_for);
-    let%bind response =
-      Deferred.choose
-        [
-          choice
-            (Pipe.read_exn t.from_client
-            >>| Protocol.Choose_foreign_aid_response.response_of_yojson)
-            Fn.id;
-          choice cancelled_reason (Fn.const `Allow);
-        ]
+
+    let f =
+     fun message ->
+      Protocol.Choose_foreign_aid_response.response_of_yojson message
     in
-    return response
+    let response = upon_next_message' t ~cancelled_reason ~on_cancel:`Allow f in
+    let%bind () = write_to_client t query in
+    response
 
   let choose_steal_response t ~visible_game_state ~stealing_player_id =
     let query =
       Protocol.Choose_steal_response.create_query stealing_player_id
         ~visible_game_state
     in
-    let%bind () = write_to_client t query in
-    let%bind response =
-      Pipe.read_exn t.from_client
-      >>| Protocol.Choose_steal_response.response_of_yojson
+    let response =
+      read_from_client t Protocol.Choose_steal_response.response_of_yojson
     in
-    return response
+    let%bind () = write_to_client t query in
+    response
 
   let choose_cards_to_return t ~visible_game_state card_1 card_2 hand =
     let query =
@@ -1177,22 +1208,19 @@ end = struct
         | Hand.One { hidden; revealed = _ } -> [ hidden ])
         ~visible_game_state
     in
-    let%bind () = write_to_client t query in
-    let%bind response =
-      Pipe.read_exn t.from_client
-      >>| Protocol.Choose_cards_to_return.response_of_yojson
+    let response =
+      read_from_client t Protocol.Choose_cards_to_return.response_of_yojson
     in
-    return response
+    let%bind () = write_to_client t query in
+    response
 
   let reveal_card t ~visible_game_state ~card_1 ~card_2 =
     let query =
       Protocol.Reveal_card.create_query card_1 card_2 ~visible_game_state
     in
+    let response = read_from_client t Protocol.Reveal_card.response_of_yojson in
     let%bind () = write_to_client t query in
-    let%bind response =
-      Pipe.read_exn t.from_client >>| Protocol.Reveal_card.response_of_yojson
-    in
-    return response
+    response
 
   let offer_challenge t ~visible_game_state challenging_player_id challengable
       ~cancelled_reason =
@@ -1200,24 +1228,18 @@ end = struct
       Protocol.Offer_challenge.create_query challenging_player_id challengable
         ~visible_game_state
     in
-    let%bind () = write_to_client t query in
     upon cancelled_reason (function
         | Cancelled_reason.Other_player_responded player_id ->
         let query =
           Protocol.Player_responded_notification.create_query player_id
         in
         write_to_client t query |> don't_wait_for);
-    let%bind response =
-      Deferred.choose
-        [
-          choice
-            (Pipe.read_exn t.from_client
-            >>| Protocol.Offer_challenge.response_of_yojson)
-            Fn.id;
-          choice cancelled_reason (Fn.const `No_challenge);
-        ]
+    let response =
+      upon_next_message' t ~cancelled_reason ~on_cancel:`No_challenge
+        Protocol.Offer_challenge.response_of_yojson
     in
-    return response
+    let%bind () = write_to_client t query in
+    response
 
   let notify_of_action_choice t player_id action =
     let query =
@@ -1350,7 +1372,7 @@ module Game_state = struct
     { t with players = new_players }
 
   let get_active_player t = List.hd_exn t.players
-  let _get_active_player_id t = get_active_player t |> Player.id
+  let get_active_player_id t = get_active_player t |> Player.id
 
   let player_in_game t id =
     List.find t.players ~f:(fun player -> Player_id.equal id player.id)
@@ -1438,6 +1460,7 @@ module Game_state = struct
       Visible_game_state.hand = player.hand;
       coins = player.coins;
       other_players;
+      active_player_id = get_active_player_id t;
     }
 
   let sorted_deck =
@@ -1452,7 +1475,7 @@ module Game_state = struct
     | (Some create_player_io, 2) as _i ->
         let%map player_io = create_player_io id card_1 card_2 in
         { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
-    | None, ((1 | 2 | 3) as i) ->
+    | _, ((0 | 1 | 2 | 3) as i) ->
         let other_players =
           List.range 0 (num_players - 1)
           |> List.filter ~f:(fun i -> i <> Player_id.to_int id)
@@ -1460,9 +1483,12 @@ module Game_state = struct
         in
         let model =
           match i with
+          | 0 -> Llm_player_io.gpt_4o_mini
           | 1 -> Llm_player_io.gpt_4o_mini
-          | 2 -> Llm_player_io.o3_mini
-          | _ -> Llm_player_io.gpt_4o
+          | 2 -> Llm_player_io.gpt_4o_mini
+          | 3 -> Llm_player_io.gpt_4o_mini
+          | 4 -> Llm_player_io.gpt_4o
+          | _ -> Llm_player_io.o3_mini
         in
         let%map player_io =
           Player_io.llm id ~card_1 ~card_2 ~other_players ~model
@@ -1983,7 +2009,7 @@ module Server = struct
                   ()
               in
               match%bind
-                Monitor.try_with ~extract_exn:true (fun () ->
+                Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
                     run_game ~game_state ())
               with
               | Ok () -> return ()

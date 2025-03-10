@@ -41,12 +41,16 @@ function formatGameState(state: ServerMessage['visible_game_state']) {
         <strong>Your coins:</strong> {state.coins}
       </div>
       <div>
+        <strong>Active player:</strong> Player {state.active_player_id}
+      </div>
+      <div>
         <strong>Other players:</strong>
         <div className="ml-4">
           {state.other_players.map((player: { player_id: number; coins: number; visible_card: Card | null }, i: number) => (
-            <div key={i}>
+            <div key={i} className={player.player_id === state.active_player_id ? "text-indigo-600 font-medium" : ""}>
               Player {player.player_id}: {player.coins} coins
               {player.visible_card && ` - Revealed: ${formatCard(player.visible_card)}`}
+              {player.player_id === state.active_player_id && " (Active)"}
             </div>
           ))}
         </div>
