@@ -1,17 +1,17 @@
 name: Build and Deploy OCaml Server
 
-on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'server/**'
-      - '.github/workflows/build.yml'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'server/**'
-      - '.github/workflows/build.yml'
-  workflow_dispatch:
+# on:
+#   push:
+#     branches: [ main ]
+#     paths:
+#       - 'server/**'
+#       - '.github/workflows/build.yml'
+#   pull_request:
+#     branches: [ main ]
+#     paths:
+#       - 'server/**'
+#       - '.github/workflows/build.yml'
+#   workflow_dispatch:
 
 jobs:
   build:
