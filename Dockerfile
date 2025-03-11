@@ -1,5 +1,5 @@
-# Use a slim Debian image
-FROM debian:12-slim
+# Use Ubuntu 24.04 to match GitHub Actions environment
+FROM ubuntu:24.04
 
 # Install runtime dependencies 
 RUN apt-get update && apt-get install -y --no-install-recommends \
