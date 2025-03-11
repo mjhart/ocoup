@@ -21,7 +21,17 @@
  (name ocoup)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml)
+ (depends 
+   ocaml
+   dune
+   async
+   async_ssl
+   core
+   cohttp-async
+   yojson
+   cohttp_async_websocket
+   ppx_jane
+   ppx_yojson_conv)
  (tags
   ("add topics" "to describe" your project)))
 

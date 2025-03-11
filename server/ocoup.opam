@@ -10,8 +10,16 @@ homepage: "https://github.com/username/reponame"
 doc: "https://url/to/documentation"
 bug-reports: "https://github.com/username/reponame/issues"
 depends: [
-  "dune" {>= "3.17"}
   "ocaml"
+  "dune" {>= "3.17"}
+  "async"
+  "async_ssl"
+  "core"
+  "cohttp-async"
+  "yojson"
+  "cohttp_async_websocket"
+  "ppx_jane"
+  "ppx_yojson_conv"
   "odoc" {with-doc}
 ]
 build: [
