@@ -1124,7 +1124,14 @@ end = struct
     in
     don't_wait_for
       (Pipe.iter t.from_client ~f:(fun message ->
-           Ivar.fill_exn t.expected_message_handler message;
+           (match Ivar.peek t.expected_message_handler with
+           | Some prior_message ->
+               print_s
+                 [%message
+                   "Received unexpected message"
+                     ~prior_message:(Yojson.Safe.to_string prior_message)
+                     ~message:(Yojson.Safe.to_string message)]
+           | None -> Ivar.fill_exn t.expected_message_handler message);
            return ()));
     t
 
