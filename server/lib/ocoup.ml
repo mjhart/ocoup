@@ -1947,14 +1947,25 @@ let run_game ?game_state () =
 module Server = struct
   let port = 8080
 
-  (* module State = struct
-    type t = { games : Game_state.t String.Table.t }
+  module State = struct
+    type t = {
+      games : (string Pipe.Reader.t * string Pipe.Writer.t) String.Table.t;
+    }
 
     let create () = { games = String.Table.create () }
 
-    let _add_game ~state ~game_id ~game_state =
-      Hashtbl.set state.games ~key:game_id ~data:game_state
-  end *)
+    let get_game_id =
+      let next_game_id = Ref.create 0 in
+      fun () ->
+        let id = !next_game_id in
+        next_game_id := id + 1;
+        [%string "game-%{id#Int}"]
+
+    let add_game ~state ~reader ~writer =
+      let game_id = get_game_id () in
+      Hashtbl.set state.games ~key:game_id ~data:(reader, writer);
+      game_id
+  end
 
   let not_found_response =
     lazy
@@ -1962,16 +1973,19 @@ module Server = struct
         Cohttp_async.Body.of_string "Not found" )
 
   module Create_game = struct
-    (* module Response = struct
-      type t = { game_id : string }
-
-      (* let to_json t = `Assoc [ ("game_id", `String t.game_id) ] *)
-    end *)
-
-    let handle ~body:_ _inet _request =
+    let handle ~state ~body:_ _inet _request =
+      let reader, writer = Pipe.create () in
+      let game_id = State.add_game ~state ~reader ~writer in
+      let body =
+        Yojson.Safe.to_string
+          (`Assoc
+             [
+               ("game_id", `String game_id);
+               ("updates_url", `String [%string "ws://games/%{game_id}/updates"]);
+             ])
+      in
       `Response
-        ( Cohttp.Response.make ~status:`OK (),
-          Cohttp_async.Body.of_string "game created" )
+        (Cohttp.Response.make ~status:`OK (), Cohttp_async.Body.of_string body)
       |> return
   end
 
@@ -1980,15 +1994,7 @@ module Server = struct
       Lazy.force not_found_response |> return
     in
 
-    let games_handler ~body:_ _inet _request =
-      `Response
-        ( Cohttp.Response.make ~status:`OK (),
-          Cohttp_async.Body.of_string "games" )
-      |> return
-    in
-
-    let ws_handler ~game_id:_ =
-      (* let _game_state = Hashtbl.find_exn games game_id in *)
+    let ws_handler kind =
       Cohttp_async_websocket.Server.create ~non_ws_request
         ~should_process_request:(fun _inet _header ~is_websocket_request:_ ->
           Ok ())
@@ -1997,38 +2003,82 @@ module Server = struct
           Cohttp_async_websocket.Server.On_connection.create (fun websocket ->
               print_endline "on connection create";
               let reader, writer = Websocket.pipes websocket in
-              let reader, debugging_fork =
-                Pipe.fork reader ~pushback_uses:`Both_consumers
-              in
-              don't_wait_for
-                (Pipe.iter_without_pushback debugging_fork ~f:(fun message ->
-                     print_endline message));
-              let player_io =
-                Websocket_player_io.create
-                  ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
-                  ~writer
-              in
-              let%bind game_state =
-                Game_state.init
-                  ~create_ws_player_io:(fun _id _card_1 _card_2 ->
-                    return
-                      (Player_io.create (module Websocket_player_io) player_io))
-                  ()
-              in
-              match%bind
-                Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
-                    run_game ~game_state ())
-              with
-              | Ok () -> return ()
-              | Error e ->
-                  print_endline "Error running game";
-                  print_endline (Exn.to_string e);
-                  return ())
+              match kind with
+              | `Player_with_updates updates_writer -> (
+                  let reader, debugging_fork =
+                    Pipe.fork reader ~pushback_uses:`Both_consumers
+                  in
+                  don't_wait_for
+                    (Pipe.transfer_id debugging_fork updates_writer);
+                  (* don't_wait_for
+                  (Pipe.iter_without_pushback debugging_fork
+                     ~f:(fun message -> print_endline message)); *)
+                  let player_io =
+                    Websocket_player_io.create
+                      ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
+                      ~writer
+                  in
+                  let%bind game_state =
+                    Game_state.init
+                      ~create_ws_player_io:(fun _id _card_1 _card_2 ->
+                        return
+                          (Player_io.create
+                             (module Websocket_player_io)
+                             player_io))
+                      ()
+                  in
+                  match%bind
+                    Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
+                        run_game ~game_state ())
+                  with
+                  | Ok () -> return ()
+                  | Error e ->
+                      print_endline "Error running game";
+                      print_endline (Exn.to_string e);
+                      return ())
+              | `Play -> (
+                  let reader, debugging_fork =
+                    Pipe.fork reader ~pushback_uses:`Both_consumers
+                  in
+                  don't_wait_for
+                    (Pipe.iter_without_pushback debugging_fork
+                       ~f:(fun message -> print_endline message));
+                  let player_io =
+                    Websocket_player_io.create
+                      ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
+                      ~writer
+                  in
+                  let%bind game_state =
+                    Game_state.init
+                      ~create_ws_player_io:(fun _id _card_1 _card_2 ->
+                        return
+                          (Player_io.create
+                             (module Websocket_player_io)
+                             player_io))
+                      ()
+                  in
+                  match%bind
+                    Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
+                        run_game ~game_state ())
+                  with
+                  | Ok () -> return ()
+                  | Error e ->
+                      print_endline "Error running game";
+                      print_endline (Exn.to_string e);
+                      return ())
+              | `Updates updates_reader ->
+                  Pipe.transfer_id updates_reader writer)
           |> Deferred.return)
     in
 
+    let with_state ~(state : State.t) ~game_id f =
+      match Hashtbl.find state.games game_id with
+      | Some (reader, writer) -> f ~reader ~writer
+      | None -> `Response (Lazy.force not_found_response) |> return
+    in
+
     let%bind server =
-      (* let state = State.create () in *)
+      let state = State.create () in
       Cohttp_async.Server.create_expert ~on_handler_error:`Raise
         (* ~mode:(Ssl_config.conduit_mode ssl_config) *)
         (Tcp.Where_to_listen.of_port port) (fun ~body inet request ->
@@ -2036,11 +2086,14 @@ module Server = struct
             ( Cohttp.Request.meth request,
               Cohttp.Request.uri request |> Uri.path |> Filename.parts )
           with
-          | `GET, [ "games" ] -> games_handler ~body inet request
-          | `POST, [ "games" ] -> Create_game.handle ~body inet request
-          | `GET, [ "games"; game_id; "player_ws" ] ->
-              ws_handler ~game_id ~body inet request
-          | _ -> ws_handler ~game_id:"" ~body inet request)
+          | `POST, [ "games" ] -> Create_game.handle ~state ~body inet request
+          | `GET, [ "games"; game_id; "updates" ] ->
+              with_state ~state ~game_id (fun ~reader ~writer:_ ->
+                  ws_handler (`Updates reader) ~body inet request)
+          | `GET, [ "games"; game_id; "player" ] ->
+              with_state ~state ~game_id (fun ~reader:_ ~writer ->
+                  ws_handler (`Player_with_updates writer) ~body inet request)
+          | _ -> ws_handler `Play ~body inet request)
     in
     let%bind () = Cohttp_async.Server.close_finished server in
     return ()
