@@ -1,16 +1,6 @@
 name: Build and Deploy OCaml Server
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'server/**'
-      - '.github/workflows/build.yml'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'server/**'
-      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 jobs:
@@ -57,6 +47,12 @@ jobs:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -74,14 +70,8 @@ jobs:
       uses: docker/login-action@v3
       with:
         registry: ghcr.io
-        username: ${{ github.repository_owner }}
+        username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Debug before Docker build
-      run: |
-        pwd
-        ls -la
-        ls -la artifacts/
       
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
