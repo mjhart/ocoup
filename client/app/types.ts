@@ -65,6 +65,7 @@ type RevealCardResponse =
 
 // Server message types (messages sent to client)
 type ServerMessage =
+  | { type: 'Game_start'; self_player_id: PlayerId; visible_game_state: VisibleGameState }
   | { type: 'Choose_action'; visible_game_state: VisibleGameState }
   | { type: 'Choose_assasination_response'; player_id: PlayerId; visible_game_state: VisibleGameState }
   | { type: 'Choose_foreign_aid_response'; visible_game_state: VisibleGameState }

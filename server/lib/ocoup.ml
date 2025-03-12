@@ -206,6 +206,9 @@ module type Player_io_S = sig
     cancelled_reason:Cancelled_reason.t Deferred.t ->
     [ `No_challenge | `Challenge ] Deferred.t
 
+  val notify_of_game_start :
+    t -> visible_game_state:Visible_game_state.t -> unit Deferred.t
+
   val notify_of_action_choice : t -> Player_id.t -> Action.t -> unit Deferred.t
   val notify_of_lost_influence : t -> Player_id.t -> Card.t -> unit Deferred.t
   val notify_of_new_card : t -> Card.t -> unit Deferred.t
@@ -449,6 +452,8 @@ end = struct
       [%string
         "Player %{challenging_player_id#Player_id} challenged you %{success}"]
     |> return
+
+  let notify_of_game_start _t ~visible_game_state:_ = return ()
 end
 
 module Llm_player_io : sig
@@ -569,6 +574,9 @@ end = struct
     in
     Queue.enqueue t.events (Assistant, content_string);
     Yojson.Basic.from_string content_string
+
+  (* TODO: send initial data here *)
+  let notify_of_game_start _t ~visible_game_state:_ = return ()
 
   let choose_action t ~visible_game_state =
     let visible_game_state_string =
@@ -801,7 +809,10 @@ module Websocket_player_io : sig
   include Player_io_S
 
   val create :
-    reader:Yojson.Safe.t Pipe.Reader.t -> writer:string Pipe.Writer.t -> t
+    player_id:Player_id.t ->
+    reader:Yojson.Safe.t Pipe.Reader.t ->
+    writer:string Pipe.Writer.t ->
+    t
 end = struct
   module Protocol = struct
     open Ppx_yojson_conv_lib.Yojson_conv.Primitives
@@ -916,6 +927,17 @@ end = struct
             ("coins", `Int coins);
             ("other_players", `List other_players);
             ("active_player_id", Player_id.yojson_of_t active_player_id);
+          ]
+    end
+
+    module Game_start = struct
+      let query ~player_id ~visible_game_state =
+        `Assoc
+          [
+            ("type", `String "Game_start");
+            ( "visible_game_state",
+              Visible_game_state.yojson_of_t visible_game_state );
+            ("self_player_id", Player_id.yojson_of_t player_id);
           ]
     end
 
@@ -1109,14 +1131,16 @@ end = struct
   end
 
   type t = {
+    player_id : Player_id.t;
     to_client : string Pipe.Writer.t;
     from_client : Yojson.Safe.t Pipe.Reader.t;
     mutable expected_message_handler : Yojson.Safe.t Ivar.t;
   }
 
-  let create ~reader ~writer =
+  let create ~player_id ~reader ~writer =
     let t =
       {
+        player_id;
         to_client = writer;
         from_client = reader;
         expected_message_handler = Ivar.create ();
@@ -1274,6 +1298,12 @@ end = struct
     in
     let%bind () = write_to_client t query in
     return ()
+
+  let notify_of_game_start t ~visible_game_state =
+    let query =
+      Protocol.Game_start.query ~player_id:t.player_id ~visible_game_state
+    in
+    write_to_client t query
 end
 
 module Player_io : sig
@@ -1345,6 +1375,9 @@ end = struct
 
   let notify_of_challenge (Packed ((module M), implementation)) =
     M.notify_of_challenge implementation
+
+  let notify_of_game_start (Packed ((module M), implementation)) =
+    M.notify_of_game_start implementation
 end
 
 module Player = struct
@@ -1925,7 +1958,6 @@ let take_turn_result game_state =
       exchange game_state >>| Result.return
 
 let take_turn game_state =
-  print_newline ();
   (* print_s [%sexp (game_state : Game_state.t)]; *)
   print_endline (Game_state.to_string_pretty game_state);
   let _ = Game_state.to_string_pretty in
@@ -1938,6 +1970,14 @@ let run_game ?game_state () =
     match game_state with
     | Some game_state -> return game_state
     | None -> Game_state.init ()
+  in
+  let%bind () =
+    Game_state.players game_state
+    |> List.map ~f:(fun player ->
+           Player_io.notify_of_game_start player.player_io
+             ~visible_game_state:
+               (Game_state.to_visible_game_state game_state player.id))
+    |> Deferred.all_unit
   in
   let%map final_game_state =
     Deferred.repeat_until_finished game_state take_turn
@@ -2026,18 +2066,16 @@ module Server = struct
                   don't_wait_for
                     (Pipe.transfer_id intermediate_reader_fork_2 updates_writer);
 
-                  let player_io =
-                    Websocket_player_io.create
-                      ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
-                      ~writer:from_game
-                  in
                   let%bind game_state =
                     Game_state.init
-                      ~create_ws_player_io:(fun _id _card_1 _card_2 ->
-                        return
-                          (Player_io.create
-                             (module Websocket_player_io)
-                             player_io))
+                      ~create_ws_player_io:(fun player_id _card_1 _card_2 ->
+                        let player_io =
+                          Websocket_player_io.create ~player_id
+                            ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
+                            ~writer:from_game
+                        in
+                        Player_io.create (module Websocket_player_io) player_io
+                        |> return)
                       ()
                   in
                   match%bind
@@ -2056,14 +2094,15 @@ module Server = struct
                   don't_wait_for
                     (Pipe.iter_without_pushback debugging_fork
                        ~f:(fun message -> print_endline message));
-                  let player_io =
-                    Websocket_player_io.create
-                      ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
-                      ~writer
-                  in
+
                   let%bind game_state =
                     Game_state.init
-                      ~create_ws_player_io:(fun _id _card_1 _card_2 ->
+                      ~create_ws_player_io:(fun player_id _card_1 _card_2 ->
+                        let player_io =
+                          Websocket_player_io.create ~player_id
+                            ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
+                            ~writer
+                        in
                         return
                           (Player_io.create
                              (module Websocket_player_io)

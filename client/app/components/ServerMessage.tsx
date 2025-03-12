@@ -245,5 +245,16 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
           <JsonDisplay />
         </div>
       );
+
+    case 'Game_start':
+      return (
+        <div>
+          <div className="font-semibold text-indigo-600">Game started!</div>
+          <div className="text-mcm-navy">
+            You are player {message.self_player_id}
+          </div>
+          {formatGameState(message.visible_game_state)}
+        </div>
+      );
   }
 } 
