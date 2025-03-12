@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy the prebuilt executable from the build process
-COPY ./artifacts/ocoup.exe /app/ocoup
+COPY ./artifacts/main.exe /app/ocoup
 
 # Make executable
 RUN chmod +x /app/ocoup
