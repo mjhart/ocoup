@@ -1945,8 +1945,6 @@ let run_game ?game_state () =
   print_s [%message "Game over" (final_game_state : Game_state.t)]
 
 module Server = struct
-  let port = 8080
-
   module State = struct
     type t = {
       games : (string Pipe.Reader.t * string Pipe.Writer.t) String.Table.t;
@@ -2003,7 +2001,7 @@ module Server = struct
       |> return
   end
 
-  let run_server () =
+  let run_server ~port =
     let non_ws_request ~body:_ _inet _request =
       Lazy.force not_found_response |> return
     in
@@ -2129,4 +2127,4 @@ module Server = struct
     return ()
 end
 
-let run_server = Server.run_server
+let run_server ~port = Server.run_server ~port

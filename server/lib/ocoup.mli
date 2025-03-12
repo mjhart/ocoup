@@ -6,5 +6,5 @@ module Game_state : sig
 end
 
 val run_game : ?game_state:Game_state.t -> unit -> unit Deferred.t
-val run_server : unit -> unit Deferred.t
+val run_server : port:int -> unit Deferred.t
 (* val create_with_pipe_player : unit *)
