@@ -2047,9 +2047,7 @@ module Server = struct
         ~should_process_request:(fun _inet _header ~is_websocket_request:_ ->
           Ok ())
         (fun ~inet:_ ~subprotocol:_ _request ->
-          print_endline "on request";
           Cohttp_async_websocket.Server.On_connection.create (fun websocket ->
-              print_endline "on connection create";
               let reader, writer = Websocket.pipes websocket in
               match kind with
               | `Player_with_updates updates_writer -> (
@@ -2130,7 +2128,7 @@ module Server = struct
       Cohttp_async.Server.create_expert ~on_handler_error:`Ignore
         (* ~mode:(Ssl_config.conduit_mode ssl_config) *)
         (Tcp.Where_to_listen.of_port port) (fun ~body inet request ->
-          print_s [%message "on request" (request : Cohttp.Request.t)];
+          print_s [%message (request : Cohttp.Request.t)];
           match
             ( Cohttp.Request.meth request,
               Cohttp.Request.uri request |> Uri.path |> Filename.parts )
