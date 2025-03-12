@@ -5,6 +5,8 @@ import type { ServerMessage, ClientMessage } from './types';
 import { ServerMessage as ServerMessageComponent } from './components/ServerMessage';
 import { ResponseForm } from './components/ResponseForm';
 
+const server_host = "localhost:8080"
+
 export default function Home() {
   const [events, setEvents] = useState<Array<{type: 'sent' | 'received' | 'system', message: ServerMessage | ClientMessage | string}>>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -25,7 +27,7 @@ export default function Home() {
     try {
       setEvents(prev => [...prev, { type: 'system', message: 'Creating a new bot game...' }]);
       
-      const response = await fetch('http://localhost:8080/games', {
+      const response = await fetch(`http://${server_host}/games`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -37,8 +39,8 @@ export default function Home() {
       }
       
       const gameData = await response.json();
-      const updatesUrl = gameData.updates_url;
-      const botPlayerUrl = gameData.player_url;
+      const updatesUrl = `ws://${server_host}${gameData.updates_url}`;
+      const botPlayerUrl = `ws://${server_host}${gameData.player_url}`;
       
       setPlayerUrl(botPlayerUrl);
       setIsBotGame(true);
@@ -60,7 +62,7 @@ export default function Home() {
     }
   };
 
-  const connectWebSocket = (url: string = 'ws://localhost:8080/new_game') => {
+  const connectWebSocket = (url: string = `ws://${server_host}/new_game`) => {
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close();

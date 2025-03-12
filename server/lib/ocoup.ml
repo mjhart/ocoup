@@ -2019,12 +2019,8 @@ module Server = struct
           (`Assoc
              [
                ("game_id", `String game_id);
-               ( "updates_url",
-                 `String
-                   [%string "ws://localhost:8080/games/%{game_id}/updates"] );
-               ( "player_url",
-                 `String [%string "ws://localhost:8080/games/%{game_id}/player"]
-               );
+               ("updates_url", `String [%string "/games/%{game_id}/updates"]);
+               ("player_url", `String [%string "/games/%{game_id}/player"]);
              ])
       in
       let headers =
