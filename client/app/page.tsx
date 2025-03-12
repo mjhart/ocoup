@@ -60,7 +60,7 @@ export default function Home() {
     }
   };
 
-  const connectWebSocket = (url: string = 'ws://localhost:8080') => {
+  const connectWebSocket = (url: string = 'ws://localhost:8080/new_game') => {
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close();

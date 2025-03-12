@@ -2121,7 +2121,8 @@ module Server = struct
           | `GET, [ "/"; "games"; game_id; "player" ] ->
               with_state ~state ~game_id (fun ~reader:_ ~writer ->
                   ws_handler (`Player_with_updates writer) ~body inet request)
-          | _ -> ws_handler `Play ~body inet request)
+          | `GET, [ "/"; "new_game" ] -> ws_handler `Play ~body inet request
+          | _ -> `Response (Lazy.force not_found_response) |> return)
     in
     let%bind () = Cohttp_async.Server.close_finished server in
     return ()
