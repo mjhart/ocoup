@@ -1981,11 +1981,25 @@ module Server = struct
           (`Assoc
              [
                ("game_id", `String game_id);
-               ("updates_url", `String [%string "ws://games/%{game_id}/updates"]);
+               ( "updates_url",
+                 `String
+                   [%string "ws://localhost:8080/games/%{game_id}/updates"] );
+               ( "player_url",
+                 `String [%string "ws://localhost:8080/games/%{game_id}/player"]
+               );
              ])
       in
+      let headers =
+        Cohttp.Header.of_list
+          [
+            ("Access-Control-Allow-Origin", "*");
+            ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+            ("Access-Control-Allow-Headers", "Content-Type");
+          ]
+      in
       `Response
-        (Cohttp.Response.make ~status:`OK (), Cohttp_async.Body.of_string body)
+        ( Cohttp.Response.make ~status:`OK ~headers (),
+          Cohttp_async.Body.of_string body )
       |> return
   end
 
@@ -2005,18 +2019,19 @@ module Server = struct
               let reader, writer = Websocket.pipes websocket in
               match kind with
               | `Player_with_updates updates_writer -> (
-                  let reader, debugging_fork =
-                    Pipe.fork reader ~pushback_uses:`Both_consumers
+                  let intermediate_reader, from_game = Pipe.create () in
+                  let intermediate_reader_fork_1, intermediate_reader_fork_2 =
+                    Pipe.fork intermediate_reader ~pushback_uses:`Both_consumers
                   in
                   don't_wait_for
-                    (Pipe.transfer_id debugging_fork updates_writer);
-                  (* don't_wait_for
-                  (Pipe.iter_without_pushback debugging_fork
-                     ~f:(fun message -> print_endline message)); *)
+                    (Pipe.transfer_id intermediate_reader_fork_1 writer);
+                  don't_wait_for
+                    (Pipe.transfer_id intermediate_reader_fork_2 updates_writer);
+
                   let player_io =
                     Websocket_player_io.create
                       ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
-                      ~writer
+                      ~writer:from_game
                   in
                   let%bind game_state =
                     Game_state.init
@@ -2079,18 +2094,33 @@ module Server = struct
 
     let%bind server =
       let state = State.create () in
-      Cohttp_async.Server.create_expert ~on_handler_error:`Raise
+      Cohttp_async.Server.create_expert ~on_handler_error:`Ignore
         (* ~mode:(Ssl_config.conduit_mode ssl_config) *)
         (Tcp.Where_to_listen.of_port port) (fun ~body inet request ->
+          print_s [%message "on request" (request : Cohttp.Request.t)];
           match
             ( Cohttp.Request.meth request,
               Cohttp.Request.uri request |> Uri.path |> Filename.parts )
           with
-          | `POST, [ "games" ] -> Create_game.handle ~state ~body inet request
-          | `GET, [ "games"; game_id; "updates" ] ->
+          | `OPTIONS, [ "/"; "games" ] ->
+              let headers =
+                Cohttp.Header.of_list
+                  [
+                    ("Access-Control-Allow-Origin", "*");
+                    ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+                    ("Access-Control-Allow-Headers", "Content-Type");
+                  ]
+              in
+              `Response
+                ( Cohttp.Response.make ~status:`OK ~headers (),
+                  Cohttp_async.Body.empty )
+              |> return
+          | `POST, [ "/"; "games" ] ->
+              Create_game.handle ~state ~body inet request
+          | `GET, [ "/"; "games"; game_id; "updates" ] ->
               with_state ~state ~game_id (fun ~reader ~writer:_ ->
                   ws_handler (`Updates reader) ~body inet request)
-          | `GET, [ "games"; game_id; "player" ] ->
+          | `GET, [ "/"; "games"; game_id; "player" ] ->
               with_state ~state ~game_id (fun ~reader:_ ~writer ->
                   ws_handler (`Player_with_updates writer) ~body inet request)
           | _ -> ws_handler `Play ~body inet request)

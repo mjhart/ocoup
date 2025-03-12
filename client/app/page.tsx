@@ -8,6 +8,8 @@ import { ResponseForm } from './components/ResponseForm';
 export default function Home() {
   const [events, setEvents] = useState<Array<{type: 'sent' | 'received' | 'system', message: ServerMessage | ClientMessage | string}>>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [isBotGame, setIsBotGame] = useState(false);
+  const [playerUrl, setPlayerUrl] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
@@ -19,13 +21,52 @@ export default function Home() {
     scrollToBottom();
   }, [events]);
 
-  const connectWebSocket = () => {
+  const createBotGame = async () => {
+    try {
+      setEvents(prev => [...prev, { type: 'system', message: 'Creating a new bot game...' }]);
+      
+      const response = await fetch('http://localhost:8080/games', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to create game: ${response.status} ${response.statusText}`);
+      }
+      
+      const gameData = await response.json();
+      const updatesUrl = gameData.updates_url;
+      const botPlayerUrl = gameData.player_url;
+      
+      setPlayerUrl(botPlayerUrl);
+      setIsBotGame(true);
+      
+      // Add the player URL to the events for the user to see
+      setEvents(prev => [...prev, { 
+        type: 'system', 
+        message: `Bot game created! Connect your bot to: ${botPlayerUrl}` 
+      }]);
+      
+      // Connect to the updates WebSocket
+      connectWebSocket(updatesUrl);
+      
+    } catch (error) {
+      setEvents(prev => [...prev, { 
+        type: 'system', 
+        message: `Error creating bot game: ${error instanceof Error ? error.message : String(error)}` 
+      }]);
+    }
+  };
+
+  const connectWebSocket = (url: string = 'ws://localhost:8080') => {
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close();
     }
     
-    const ws = new WebSocket('ws://localhost:8080');
+    const ws = new WebSocket(url);
 
     ws.onopen = () => {
       setIsConnected(true);
@@ -89,17 +130,27 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <div className="mcm-dial"></div>
             {!isConnected && (
-              <button
-                onClick={connectWebSocket}
-                className="btn"
-              >
-                {events.length > 0 ? 'Reconnect' : 'Start Game'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => connectWebSocket()}
+                  className="btn"
+                >
+                  {events.length > 0 ? 'Reconnect' : 'Start Game'}
+                </button>
+                <button
+                  onClick={createBotGame}
+                  className="btn bg-mcm-coral hover:bg-mcm-orange"
+                >
+                  Bot Game
+                </button>
+              </div>
             )}
             {isConnected && (
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-mcm-teal animate-pulse"></div>
-                <span className="uppercase text-xs font-bold tracking-wider text-mcm-teal">Connected</span>
+                <span className="uppercase text-xs font-bold tracking-wider text-mcm-teal">
+                  {isBotGame ? 'Bot Game Connected' : 'Connected'}
+                </span>
               </div>
             )}
           </div>
@@ -161,24 +212,52 @@ export default function Home() {
               <div className="flex-grow flex justify-between items-center">
                 <div className="text-xs uppercase tracking-wider text-mcm-navy font-bold">Signal Strength</div>
                 {!isConnected && events.length > 0 && (
-                  <button 
-                    onClick={connectWebSocket}
-                    className="text-xs uppercase tracking-wider bg-mcm-coral text-white px-3 py-1 rounded-md font-bold hover:bg-mcm-orange"
-                  >
-                    Reconnect
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => connectWebSocket()}
+                      className="text-xs uppercase tracking-wider bg-mcm-coral text-white px-3 py-1 rounded-md font-bold hover:bg-mcm-orange"
+                    >
+                      Reconnect
+                    </button>
+                    <button 
+                      onClick={createBotGame}
+                      className="text-xs uppercase tracking-wider bg-mcm-mustard text-white px-3 py-1 rounded-md font-bold hover:bg-mcm-orange"
+                    >
+                      Bot Game
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
           </div>
 
-          {isConnected && (
+          {isConnected && !isBotGame && (
             <div className="mcm-panel">
               <h2 className="font-display text-xl text-mcm-navy mb-3 pb-2 border-b-2 border-mcm-mustard">CONTROL DECK</h2>
               <ResponseForm 
                 lastMessage={lastServerMessage}
                 onSubmit={sendResponse}
               />
+            </div>
+          )}
+          
+          {isConnected && isBotGame && playerUrl && (
+            <div className="mcm-panel">
+              <h2 className="font-display text-xl text-mcm-navy mb-3 pb-2 border-b-2 border-mcm-mustard">BOT INFO</h2>
+              <div className="bg-mcm-offwhite rounded-xl p-4 border-2 border-mcm-mustard">
+                <div className="mb-3">
+                  <h3 className="font-bold text-mcm-navy mb-1">Player WebSocket URL:</h3>
+                  <div className="bg-mcm-navy text-white p-2 rounded-md font-mono text-xs overflow-x-auto">
+                    {playerUrl}
+                  </div>
+                </div>
+                <p className="text-sm text-mcm-navy mb-2">
+                  Connect your bot to this WebSocket URL to play the game.
+                </p>
+                <p className="text-sm text-mcm-navy">
+                  You are currently viewing game updates in spectator mode.
+                </p>
+              </div>
             </div>
           )}
         </div>
