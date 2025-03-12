@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ServerMessage, Card, Action, Challengable } from '../types';
 
 function formatCard(card: Card): string {
@@ -60,12 +61,43 @@ function formatGameState(state: ServerMessage['visible_game_state']) {
 }
 
 export function ServerMessage({ message }: { message: ServerMessage }) {
+  const [showJson, setShowJson] = useState(false);
+  
+  const toggleJsonView = () => {
+    setShowJson(!showJson);
+  };
+  
+  // JSON display component
+  const JsonDisplay = () => {
+    if (!showJson) return null;
+    
+    return (
+      <div className="mt-3 p-3 bg-gray-100 rounded-md border border-gray-300">
+        <pre className="text-xs whitespace-pre-wrap overflow-x-auto">
+          {JSON.stringify(message, null, 2)}
+        </pre>
+      </div>
+    );
+  };
+  
+  // Reusable JSON toggle button 
+  const JsonToggleButton = () => (
+    <button 
+      onClick={toggleJsonView}
+      className="mt-2 text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 rounded px-2 py-1 transition-colors"
+    >
+      {showJson ? "Hide JSON" : "Show JSON"}
+    </button>
+  );
+
   switch (message.type) {
     case 'Choose_action':
       return (
         <div>
           <div className="font-semibold text-indigo-600">Your turn! Choose an action:</div>
           {formatGameState(message.visible_game_state)}
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
@@ -76,6 +108,8 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
             Player {message.player_id} is trying to assassinate you! Block or allow?
           </div>
           {formatGameState(message.visible_game_state)}
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
@@ -86,6 +120,8 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
             A player is attempting to take foreign aid. Block or allow?
           </div>
           {formatGameState(message.visible_game_state)}
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
@@ -96,6 +132,8 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
             Player {message.player_id} is trying to steal from you! Block or allow?
           </div>
           {formatGameState(message.visible_game_state)}
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
@@ -107,6 +145,8 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
             Available cards: {message.cards.map(formatCard).join(', ')}
           </div>
           {formatGameState(message.visible_game_state)}
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
@@ -120,6 +160,8 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
             Card 2: {formatCard(message.card_2)}
           </div>
           {formatGameState(message.visible_game_state)}
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
@@ -144,41 +186,63 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
             Would you like to challenge this action?
           </div>
           {formatGameState(message.visible_game_state)}
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
     case 'Action_chosen':
       return (
-        <div className="text-gray-600">
-          Player {message.player_id} chose: {formatAction(message.action)}
+        <div>
+          <div className="text-gray-600">
+            Player {message.player_id} chose: {formatAction(message.action)}
+          </div>
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
     case 'Lost_influence':
       return (
-        <div className="text-red-600">
-          Player {message.player_id} lost influence: {formatCard(message.card)}
+        <div>
+          <div className="text-red-600">
+            Player {message.player_id} lost influence: {formatCard(message.card)}
+          </div>
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
     case 'New_card':
       return (
-        <div className="text-green-600">
-          You received a new card: {formatCard(message.card)}
+        <div>
+          <div className="text-green-600">
+            You received a new card: {formatCard(message.card)}
+          </div>
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
     case 'Challenge':
       return (
-        <div className={message.has_required_card ? 'text-red-600' : 'text-green-600'}>
-          Player {message.player_id} challenged you {message.has_required_card ? 'unsuccessfully' : 'successfully'}
+        <div>
+          <div className={message.has_required_card ? 'text-red-600' : 'text-green-600'}>
+            Player {message.player_id} challenged you {message.has_required_card ? 'unsuccessfully' : 'successfully'}
+          </div>
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
 
     case 'Player_responded':
       return (
-        <div className="text-gray-600">
-          Player {message.player_id} has responded
+        <div>
+          <div className="text-gray-600">
+            Player {message.player_id} has responded
+          </div>
+          <JsonToggleButton />
+          <JsonDisplay />
         </div>
       );
   }
