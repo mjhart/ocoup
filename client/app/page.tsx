@@ -179,11 +179,11 @@ export default function Home() {
                 let eventClasses = "event-message";
                 
                 if (event.type === 'received') {
-                  eventClasses += " received";
+                  eventClasses += " received ml-[20%]";
                 } else if (event.type === 'sent') {
-                  eventClasses += " sent";
+                  eventClasses += " sent mr-[20%]";
                 } else if (event.type === 'system') {
-                  eventClasses += " system";
+                  eventClasses += " system mx-[10%] text-center";
                   
                   // Add special styling for disconnect messages
                   if (typeof event.message === 'string' && 
