@@ -5,7 +5,7 @@ import type { ServerMessage, ClientMessage } from './types';
 import { ServerMessage as ServerMessageComponent } from './components/ServerMessage';
 import { ResponseForm } from './components/ResponseForm';
 
-const server_host = "localhost:8080"
+const server_host = "ocoup-server-production.up.railway.app"
 
 export default function Home() {
   const [events, setEvents] = useState<Array<{type: 'sent' | 'received' | 'system', message: ServerMessage | ClientMessage | string}>>([]);
