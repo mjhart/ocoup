@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { ServerMessage, ClientMessage } from './types';
 import { ServerMessage as ServerMessageComponent } from './components/ServerMessage';
 import { ResponseForm } from './components/ResponseForm';
+import { BotHelp } from './components/BotHelp';
 
 const server_host = "ocoup-server-production.up.railway.app"
 
@@ -263,6 +264,9 @@ export default function Home() {
             </div>
           )}
         </div>
+        
+        {/* Add the Bot Help component */}
+        <BotHelp />
       </div>
     </main>
   );
