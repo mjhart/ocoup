@@ -1,4 +1,4 @@
-import type { ServerMessage, ClientMessage, Card, Action, PlayerId } from '../types';
+import type { ServerMessage, ClientMessage } from '../types';
 
 interface Props {
   lastMessage: ServerMessage | null;

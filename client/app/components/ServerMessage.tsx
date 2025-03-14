@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ServerMessage, Card, Action, Challengable } from '../types';
+import type { ServerMessage, Card, Action, Challengable, VisibleGameState, CardInHand, OtherPlayer } from '../types';
 
 function formatCard(card: Card): string {
   return card;
@@ -30,12 +30,12 @@ function formatAction(action: Action | Challengable): string {
   }
 }
 
-function formatGameState(state: ServerMessage['visible_game_state']) {
+function formatGameState(state: VisibleGameState) {
   return (
     <div className="mt-2 space-y-2">
       <div>
         <strong>Your hand:</strong>{' '}
-        {state.hand.map((card, i) => (
+        {state.hand.map((card: CardInHand, i: number) => (
           <span key={i} className="ml-2">
             {formatCard(card.card)}
             {card.revealed ? ' (revealed)' : ' (hidden)'}
@@ -48,7 +48,7 @@ function formatGameState(state: ServerMessage['visible_game_state']) {
       <div>
         <strong>Other players:</strong>
         <div className="ml-4">
-          {state.other_players.map((player, i) => (
+          {state.other_players.map((player: OtherPlayer, i: number) => (
             <div key={i}>
               Player {player.player_id}: {player.coins} coins
               {player.visible_card && ` - Revealed: ${formatCard(player.visible_card)}`}
@@ -167,12 +167,7 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
 
     case 'Offer_challenge':
       // Format the action being challenged
-      let actionDescription = formatAction(message.action);
-      
-      // Improve description for Block_steal with undefined card
-      if (message.action.type === 'Block_steal' && !message.action.card) {
-        actionDescription = 'Block your steal attempt';
-      }
+      const actionDescription = formatAction(message.action);
       
       return (
         <div>
