@@ -27,7 +27,7 @@ export default function Home() {
     try {
       setEvents(prev => [...prev, { type: 'system', message: 'Creating a new bot game...' }]);
       
-      const response = await fetch(`http://${server_host}/games`, {
+      const response = await fetch(`https://${server_host}/games`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -39,8 +39,8 @@ export default function Home() {
       }
       
       const gameData = await response.json();
-      const updatesUrl = `ws://${server_host}${gameData.updates_url}`;
-      const botPlayerUrl = `ws://${server_host}${gameData.player_url}`;
+      const updatesUrl = `wss://${server_host}${gameData.updates_url}`;
+      const botPlayerUrl = `wss://${server_host}${gameData.player_url}`;
       
       setPlayerUrl(botPlayerUrl);
       setIsBotGame(true);
@@ -62,7 +62,7 @@ export default function Home() {
     }
   };
 
-  const connectWebSocket = (url: string = `ws://${server_host}/new_game`) => {
+  const connectWebSocket = (url: string = `wss://${server_host}/new_game`) => {
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close();
