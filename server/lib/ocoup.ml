@@ -1470,8 +1470,13 @@ module Game_state = struct
       Option.value_map target_player_id ~default:true
         ~f:(fun target_player_id ->
           not (Player_id.equal target_player_id active_player_id))
+    and coup_if_required =
+      match player.coins < 10 with
+      | true -> true
+      | false -> ( match action with `Coup _ -> true | _ -> false)
     in
     has_enough_coins && is_valid_target && not_targeting_self
+    && coup_if_required
 
   let has_card t id card =
     let player = get_player_exn t id in
