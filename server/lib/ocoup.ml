@@ -13,6 +13,7 @@ let run_game ?game_state () =
             Player_io.cli;
             Player_io.llm ~model:Llm_player_io.gpt_4o;
             Player_io.llm ~model:Llm_player_io.o3_mini;
+            Player_io.gemini ~model:Gemini_player_io.gemini_2_5_pro_exp_03_25;
           ]
         >>| Or_error.ok_exn
   in
