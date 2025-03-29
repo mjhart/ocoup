@@ -456,16 +456,16 @@ let steal game_state target_player_id =
                 handle_challenge post_challenge_game_state target_player_id
                   (`Block_steal blocking_card)
               with
-              | `Successfully_challenged post_second_challenge_game_state ->
-                  post_second_challenge_game_state
-              | `Failed_or_no_challenge post_second_challenge_game_state -> (
+              | `Successfully_challenged post_second_challenge_game_state -> (
                   match
                     Game_state.get_player_if_exists
                       post_second_challenge_game_state target_player_id
                   with
                   | None -> post_second_challenge_game_state
                   | Some _target_player ->
-                      steal_two_coins post_second_challenge_game_state))))
+                      steal_two_coins post_second_challenge_game_state)
+              | `Failed_or_no_challenge post_second_challenge_game_state ->
+                  post_second_challenge_game_state)))
 
 let exchange game_state =
   let active_player = Game_state.get_active_player game_state in
