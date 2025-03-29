@@ -246,14 +246,7 @@ module Llm_player_io : sig
 
   (* val o1_mini : string *)
   val o3_mini : string
-
-  val create :
-    Player_id.t ->
-    card_1:Card.t ->
-    card_2:Card.t ->
-    other_players:Player_id.t list ->
-    model:string ->
-    t Deferred.t
+  val create : Player_id.t -> model:string -> t Deferred.t
 end = struct
   type role = Developer | Assistant | User
 
@@ -275,21 +268,9 @@ end = struct
     model : string;
   }
 
-  let create player_id ~card_1 ~card_2 ~other_players ~model =
+  let create player_id ~model =
     let events = Queue.create () in
     Queue.enqueue events (Developer, Rules.rules);
-    let other_players_string =
-      other_players
-      |> List.map ~f:(fun player_id ->
-             [%string "Player id: %{player_id#Player_id}"])
-      |> String.concat ~sep:", "
-    in
-    Queue.enqueue events
-      ( Developer,
-        [%string
-          "The game is starting. You are player %{player_id#Player_id}. Your \
-           starting cards are %{card_1#Card} and %{card_2#Card}. Players \
-           %{other_players_string} are your opponents."] );
 
     let%map writer =
       Writer.open_file [%string "player_%{player_id#Player_id}.txt"]
@@ -358,7 +339,29 @@ end = struct
     Yojson.Basic.from_string content_string
 
   (* TODO: send initial data here *)
-  let notify_of_game_start _t ~visible_game_state:_ = return ()
+  let notify_of_game_start t ~visible_game_state =
+    (match visible_game_state with
+    | {
+     Visible_game_state.hand = Hand.Both (card_1, card_2);
+     other_players;
+     coins = _;
+     active_player_id = _;
+    } ->
+        let other_players_string =
+          other_players
+          |> List.map
+               ~f:(fun { Visible_game_state.Other_player.player_id; _ } ->
+                 [%string "Player id: %{player_id#Player_id}"])
+          |> String.concat ~sep:", "
+        in
+        Queue.enqueue t.events
+          ( Developer,
+            [%string
+              "The game is starting. You are player %{t.player_id#Player_id}. \
+               Your starting cards are %{card_1#Card} and %{card_2#Card}. \
+               Players %{other_players_string} are your opponents."] )
+    | _ -> failwith "Expected player to have two cards at game start");
+    return ()
 
   let choose_action t ~visible_game_state =
     let visible_game_state_string =
@@ -1091,14 +1094,7 @@ end
 module Player_io : sig
   type t
 
-  val llm :
-    Player_id.t ->
-    card_1:Card.t ->
-    card_2:Card.t ->
-    other_players:Player_id.t list ->
-    model:string ->
-    t Deferred.t
-
+  val llm : Player_id.t -> model:string -> t Deferred.t
   val cli : Player_id.t -> t Deferred.t
   val create : (module Player_io_S with type t = 'a) -> 'a -> t
 
@@ -1109,13 +1105,11 @@ end = struct
   let create (type a) (module M : Player_io_S with type t = a) implementation =
     Packed ((module M), implementation)
 
-  let llm id ~card_1 ~card_2 ~other_players ~model =
+  let llm id ~model =
     let (module M) =
       (module Llm_player_io : Player_io_S with type t = Llm_player_io.t)
     in
-    let%map implementation =
-      Llm_player_io.create id ~card_1 ~card_2 ~other_players ~model
-    in
+    let%map implementation = Llm_player_io.create id ~model in
     Packed ((module M), implementation)
 
   let cli id =

@@ -7,7 +7,13 @@ let run_game ?game_state () =
   let%bind game_state =
     match game_state with
     | Some game_state -> return game_state
-    | None -> Game_state.init ()
+    | None ->
+        Game_state.init
+          [
+            Player_io.cli;
+            Player_io.llm ~model:Llm_player_io.gpt_4o;
+            Player_io.llm ~model:Llm_player_io.o3_mini;
+          ]
   in
   let%bind () =
     Game_state.players game_state
@@ -102,14 +108,18 @@ module Server = struct
                  print_endline message));
           let%bind game_state =
             Game_state.init
-              ~create_ws_player_io:(fun player_id _card_1 _card_2 ->
-                let player_io =
-                  Websocket_player_io.create ~player_id
-                    ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
-                    ~writer
-                in
-                return (Player_io.create (module Websocket_player_io) player_io))
-              ()
+              [
+                Player_io.llm ~model:Llm_player_io.gpt_4o;
+                Player_io.llm ~model:Llm_player_io.o3_mini;
+                (fun player_id ->
+                  let player_io =
+                    Websocket_player_io.create ~player_id
+                      ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
+                      ~writer
+                  in
+                  return
+                    (Player_io.create (module Websocket_player_io) player_io));
+              ]
           in
           match%bind
             Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
@@ -134,15 +144,18 @@ module Server = struct
 
           let%bind game_state =
             Game_state.init
-              ~create_ws_player_io:(fun player_id _card_1 _card_2 ->
-                let player_io =
-                  Websocket_player_io.create ~player_id
-                    ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
-                    ~writer:from_game
-                in
-                Player_io.create (module Websocket_player_io) player_io
-                |> return)
-              ()
+              [
+                Player_io.llm ~model:Llm_player_io.gpt_4o;
+                Player_io.llm ~model:Llm_player_io.o3_mini;
+                (fun player_id ->
+                  let player_io =
+                    Websocket_player_io.create ~player_id
+                      ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
+                      ~writer:from_game
+                  in
+                  Player_io.create (module Websocket_player_io) player_io
+                  |> return);
+              ]
           in
           match%bind
             Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->

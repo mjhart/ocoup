@@ -134,37 +134,11 @@ module Game_state = struct
     |> List.concat_map ~f:(fun _i ->
            [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
 
-  let num_players = 3
-
-  let create_player ?create_ws_player_io id card_1 card_2 =
-    match (create_ws_player_io, Player_id.to_int id) with
-    | (Some create_player_io, 2) as _i ->
-        let%map player_io = create_player_io id card_1 card_2 in
-        { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
-    | _, ((0 | 1 | 2 | 3) as i) ->
-        let other_players =
-          List.range 0 (num_players - 1)
-          |> List.filter ~f:(fun i -> i <> Player_id.to_int id)
-          |> List.map ~f:Player_id.of_int
-        in
-        let model =
-          match i with
-          | 0 -> Llm_player_io.gpt_4o_mini
-          | 1 -> Llm_player_io.gpt_4o_mini
-          | 2 -> Llm_player_io.gpt_4o_mini
-          | 3 -> Llm_player_io.gpt_4o_mini
-          | 4 -> Llm_player_io.gpt_4o
-          | _ -> Llm_player_io.o3_mini
-        in
-        let%map player_io =
-          Player_io.llm id ~card_1 ~card_2 ~other_players ~model
-        in
-        { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
-    | _ ->
-        let%map player_io = Player_io.cli id in
-        { Player.id; coins = 2; player_io; hand = Hand.Both (card_1, card_2) }
-
-  let init ?create_ws_player_io () =
+  let (init :
+        (Player_id.t -> Player_ios.Player_io.t Deferred.t) list -> t Deferred.t)
+      =
+   fun player_io_creators ->
+    let num_players = List.length player_io_creators in
     let deck =
       Random.self_init ();
       let rand = fun () -> Random.bits () in
@@ -178,9 +152,17 @@ module Game_state = struct
     in
     let player_cards, remaining_cards = List.split_n paired_deck num_players in
     let%map players =
-      Deferred.List.mapi ~how:`Sequential player_cards
-        ~f:(fun id (card_1, card_2) ->
-          create_player ?create_ws_player_io (Player_id.of_int id) card_1 card_2)
+      List.zip_exn player_cards player_io_creators
+      |> Deferred.List.mapi ~how:`Sequential
+           ~f:(fun i ((card_1, card_2), player_io_creator) ->
+             let id = Player_id.of_int i in
+             let%map player_io = player_io_creator id in
+             {
+               Player.id;
+               coins = 2;
+               player_io;
+               hand = Hand.Both (card_1, card_2);
+             })
     in
     let deck =
       List.concat_map remaining_cards ~f:(fun (carrd_1, card_2) ->
