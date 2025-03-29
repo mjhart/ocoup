@@ -14,6 +14,7 @@ let run_game ?game_state () =
             Player_io.llm ~model:Llm_player_io.gpt_4o;
             Player_io.llm ~model:Llm_player_io.o3_mini;
           ]
+        >>| Or_error.ok_exn
   in
   let%bind () =
     Game_state.players game_state
@@ -120,6 +121,7 @@ module Server = struct
                   return
                     (Player_io.create (module Websocket_player_io) player_io));
               ]
+            >>| Or_error.ok_exn
           in
           match%bind
             Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
@@ -156,6 +158,7 @@ module Server = struct
                   Player_io.create (module Websocket_player_io) player_io
                   |> return);
               ]
+            >>| Or_error.ok_exn
           in
           match%bind
             Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->

@@ -134,11 +134,15 @@ module Game_state = struct
     |> List.concat_map ~f:(fun _i ->
            [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
 
-  let (init :
-        (Player_id.t -> Player_ios.Player_io.t Deferred.t) list -> t Deferred.t)
-      =
-   fun player_io_creators ->
-    let num_players = List.length player_io_creators in
+  let init player_io_creators =
+    let%bind.Deferred.Or_error num_players =
+      match List.length player_io_creators with
+      | 0 -> Deferred.Or_error.error_string "No players"
+      | 1 -> Deferred.Or_error.error_string "Only one player"
+      | num_players when num_players > 6 ->
+          Deferred.Or_error.error_string "Too many players"
+      | num_players -> Deferred.Or_error.return num_players
+    in
     let deck =
       Random.self_init ();
       let rand = fun () -> Random.bits () in
@@ -168,7 +172,7 @@ module Game_state = struct
       List.concat_map remaining_cards ~f:(fun (carrd_1, card_2) ->
           [ carrd_1; card_2 ])
     in
-    { players; deck }
+    Ok { players; deck }
 end
 
 (* Actions *)
