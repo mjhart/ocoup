@@ -3,7 +3,10 @@ open! Async
 
 let command =
   Command.async ~summary:"Run ocoup on the command line"
-    (Command.Param.return (fun () -> Ocoup.run_game ()))
+    (let%map_open.Command player_ios =
+       anon (non_empty_sequence_as_list ("player-ios" %: string))
+     in
+     fun () -> Ocoup.run_game player_ios)
 
 let run_server_command =
   Command.async ~summary:"Run the ocoup server"

@@ -3,20 +3,7 @@ open! Async
 open Player_ios
 open Game
 
-let run_game ?game_state () =
-  let%bind game_state =
-    match game_state with
-    | Some game_state -> return game_state
-    | None ->
-        Game_state.init
-          [
-            Player_io.cli;
-            Player_io.llm ~model:Llm_player_io.gpt_4o;
-            Player_io.llm ~model:Llm_player_io.o3_mini;
-            Player_io.gemini ~model:Gemini_player_io.gemini_2_5_pro_exp_03_25;
-          ]
-        >>| Or_error.ok_exn
-  in
+let run_game ~game_state =
   let%bind () =
     Game_state.players game_state
     |> List.map ~f:(fun player ->
@@ -126,7 +113,7 @@ module Server = struct
           in
           match%bind
             Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
-                run_game ~game_state ())
+                run_game ~game_state)
           with
           | Ok () -> return ()
           | Error e ->
@@ -163,7 +150,7 @@ module Server = struct
           in
           match%bind
             Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
-                run_game ~game_state ())
+                run_game ~game_state)
           with
           | Ok () -> return ()
           | Error e ->
@@ -216,4 +203,16 @@ module Server = struct
 end
 
 let run_server ~port = Server.run_server ~port
-let run_game () = run_game ()
+
+let player_io_of_string = function
+  | "cli" -> Player_io.cli
+  | "gpt-4o" -> Player_io.llm ~model:Llm_player_io.gpt_4o
+  | "o3-mini" -> Player_io.llm ~model:Llm_player_io.o3_mini
+  | "gemini-2-5" ->
+      Player_io.gemini ~model:Gemini_player_io.gemini_2_5_pro_exp_03_25
+  | unrecognized -> failwith (sprintf "Unrecognized player io: %s" unrecognized)
+
+let run_game player_ios =
+  let player_ios = List.map player_ios ~f:player_io_of_string in
+  let%bind game_state = Game_state.init player_ios >>| Or_error.ok_exn in
+  run_game ~game_state
