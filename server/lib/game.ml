@@ -130,7 +130,7 @@ module Game_state = struct
     }
 
   let sorted_deck =
-    [ 1; 2; 3; 4 ]
+    [ 1; 2; 3 ]
     |> List.concat_map ~f:(fun _i ->
            [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
 

@@ -216,3 +216,9 @@ let run_game player_ios =
   let player_ios = List.map player_ios ~f:player_io_of_string in
   let%bind game_state = Game_state.init player_ios >>| Or_error.ok_exn in
   run_game ~game_state
+
+module For_testing = struct
+  module Game = Game
+  module Types = Types
+  module Player_ios = Player_ios
+end
