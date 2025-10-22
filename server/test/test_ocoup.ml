@@ -34,7 +34,11 @@ end = struct
   let create player_index responses = { player_index; responses }
 
   let dequeue_exn t =
-    let i, choice = Queue.dequeue_exn t.responses in
+    let i, choice =
+      match Queue.dequeue t.responses with
+      | Some x -> x
+      | None -> raise_s [%message "No more actions" (t.player_index : int)]
+    in
     if i <> t.player_index then
       raise_s
         [%message "Unexpected player action" (i : int) (t.player_index : int)];
@@ -87,7 +91,14 @@ end = struct
     | _ -> failwith "Expected Offer_challenge response"
 
   let notify_of_game_start _t ~visible_game_state:_ = return ()
-  let notify_of_action_choice _t _player_id _action = return ()
+
+  let notify_of_action_choice t player_id action =
+    print_endline
+      [%string
+        "Player %{t.player_index#Int}: Player %{player_id#Player_id} chose \
+         %{action#Action}"];
+    return ()
+
   let notify_of_lost_influence _t _player_id _card = return ()
   let notify_of_new_card _t _card = return ()
 
@@ -118,7 +129,7 @@ let run_test moves_list =
                 (module Test_player_io)
                 (Test_player_io.create 1 moves);
             coins = 2;
-            hand = Hand.Both (Card.Ambassador, Card.Contessa);
+            hand = Hand.Both (Card.Captain, Card.Ambassador);
           };
         ];
       deck =
@@ -126,16 +137,18 @@ let run_test moves_list =
           Card.Ambassador;
           Contessa;
           Captain;
-          Duke;
+          Contessa;
           Ambassador;
           Duke;
-          Captain;
+          Duke;
           Captain;
           Assassin;
           Contessa;
         ];
     }
   in
+  print_endline "Initial game state:";
+  print_s [%sexp (game_state : Game_state.t)];
   let%map result =
     Deferred.repeat_until_finished game_state (fun game_state ->
         match Queue.is_empty moves with
@@ -148,7 +161,7 @@ let run_test moves_list =
   print_endline "Game state after all moves:";
   print_s [%sexp (result : Game_state.t)]
 
-let%expect_test _ =
+let%expect_test "basic interaction" =
   let%bind () =
     run_test
       [
@@ -161,26 +174,229 @@ let%expect_test _ =
   in
   [%expect
     {|
-    ->Player id: 0	Coins: 2	Hand: (Both Duke Assassin)
-      Player id: 1	Coins: 2	Hand: (Both Ambassador Contessa)
-
+    Initial game state:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))
+       ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
+     (deck
+      (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
+       Contessa)))
     Player 0: Choose_action: Income
-      Player id: 0	Coins: 3	Hand: (Both Duke Assassin)
-    ->Player id: 1	Coins: 2	Hand: (Both Ambassador Contessa)
-
+    Player 0: Player 0 chose Income
+    Player 1: Player 0 chose Income
     Player 1: Choose_action: Tax
     Player 0: Offer_challenge
-    ->Player id: 0	Coins: 3	Hand: (Both Duke Assassin)
-      Player id: 1	Coins: 5	Hand: (Both Ambassador Contessa)
-
     Player 0: Choose_action: Exchange
+    Player 0: Player 0 chose Exchange
+    Player 1: Player 0 chose Exchange
     Player 0: Choose_cards_to_return
     Game state after all moves:
     ((players
-      (((id 1) (player_io <opaque>) (coins 5) (hand (Both Ambassador Contessa)))
+      (((id 1) (player_io <opaque>) (coins 5) (hand (Both Captain Ambassador)))
        ((id 0) (player_io <opaque>) (coins 3) (hand (Both Assassin Duke)))))
      (deck
-      (Captain Contessa Duke Ambassador Captain Captain Assassin Duke Ambassador
+      (Captain Contessa Contessa Ambassador Duke Captain Assassin Duke Ambassador
+       Contessa)))
+    |}];
+  return ()
+
+let%expect_test "foreign aid block can be challenged" =
+  let%bind () =
+    run_test
+      [
+        (0, Choose_action `Foreign_aid);
+        (1, Choose_foreign_aid_response `Block);
+        (0, Offer_challenge `Challenge);
+        (1, Reveal_card `Card_1);
+      ]
+  in
+  [%expect
+    {|
+    Initial game state:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))
+       ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
+     (deck
+      (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
+       Contessa)))
+    Player 0: Choose_action: Foreign aid
+    Player 1: Choose_foreign_aid_response
+    Player 0: Offer_challenge
+    Player 1: Reveal_card
+    Game state after all moves:
+    ((players
+      (((id 1) (player_io <opaque>) (coins 2)
+        (hand (One (hidden Ambassador) (revealed Captain))))
+       ((id 0) (player_io <opaque>) (coins 4) (hand (Both Duke Assassin)))))
+     (deck
+      (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
+       Contessa)))
+    |}];
+  return ()
+
+let%expect_test "contessa block protects against assassination" =
+  let%bind () =
+    run_test
+      [
+        (0, Choose_action `Tax);
+        (1, Offer_challenge `No_challenge);
+        (1, Choose_action `Income);
+        (0, Choose_action (`Assassinate (Player_id.of_int 1)));
+        (1, Offer_challenge `No_challenge);
+        (1, Choose_assasination_response `Block);
+        (0, Offer_challenge `Challenge);
+        (0, Reveal_card `Card_2);
+      ]
+  in
+  [%expect.unreachable];
+  return ()
+[@@expect.uncaught_exn {|
+  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+     This is strongly discouraged as backtraces are fragile.
+     Please change this test to not include a backtrace. *)
+  (monitor.ml.Error ("Unexpected player action" (i 0) (t.player_index 1))
+    ("Called from Base__Error.raise_s in file \"src/error.ml\", line 10, characters 26-47"
+      "Called from Test_ocoup.Test_player_io.dequeue_exn in file \"test/test_ocoup.ml\", lines 43-44, characters 6-78"
+      "Called from Test_ocoup.Test_player_io.reveal_card in file \"test/test_ocoup.ml\", line 81, characters 19-32"
+      "Called from Ocoup__Game.lose_influence in file \"lib/game.ml\", lines 193-196, characters 10-27"
+      "Called from Ocoup__Game.handle_challenge.(fun) in file \"lib/game.ml\", line 320, characters 12-54"
+      "Caught by monitor block_on_async"))
+  Raised at Base__Result.ok_exn in file "src/result.ml" (inlined), line 279, characters 17-26
+  Called from Async_unix__Thread_safe.block_on_async_exn in file "src/thread_safe.ml", line 163, characters 29-63
+  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 142, characters 10-28
+
+  Trailing output
+  ---------------
+  Initial game state:
+  ((players
+    (((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))
+     ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
+   (deck
+    (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
+     Contessa)))
+  Player 0: Choose_action: Tax
+  Player 1: Offer_challenge
+  Player 1: Choose_action: Income
+  Player 1: Player 1 chose Income
+  Player 0: Player 1 chose Income
+  Player 0: Choose_action: Assassinate 1
+  Player 1: Offer_challenge
+  Player 1: Choose_assasination_response
+  Player 0: Offer_challenge
+  |}]
+
+let%expect_test "ambassador block prevents steal" =
+  let%bind () =
+    run_test
+      [
+        (0, Choose_action (`Steal (Player_id.of_int 1)));
+        (1, Offer_challenge `No_challenge);
+        (1, Choose_steal_response (`Block `Ambassador));
+        (0, Offer_challenge `No_challenge);
+      ]
+  in
+  [%expect
+    {|
+    Initial game state:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))
+       ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
+     (deck
+      (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
+       Contessa)))
+    Player 0: Choose_action: Steal 1
+    Player 1: Offer_challenge
+    Player 1: Choose_steal_response
+    Player 0: Offer_challenge
+    Game state after all moves:
+    ((players
+      (((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))
+       ((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))))
+     (deck
+      (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
+       Contessa)))
+    |}];
+  return ()
+
+let%expect_test "failed challenge and assassination cost two influence" =
+  let%bind () =
+    run_test
+      [
+        (0, Choose_action `Income);
+        (1, Choose_action `Income);
+        (0, Choose_action (`Assassinate (Player_id.of_int 1)));
+        (1, Offer_challenge `Challenge);
+        (1, Reveal_card `Card_1);
+        (1, Choose_assasination_response `Allow);
+      ]
+  in
+  [%expect
+    {|
+    Initial game state:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))
+       ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
+     (deck
+      (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
+       Contessa)))
+    Player 0: Choose_action: Income
+    Player 0: Player 0 chose Income
+    Player 1: Player 0 chose Income
+    Player 1: Choose_action: Income
+    Player 1: Player 1 chose Income
+    Player 0: Player 1 chose Income
+    Player 0: Choose_action: Assassinate 1
+    Player 1: Offer_challenge
+    Player 1: Reveal_card
+    Player 1: Choose_assasination_response
+    Game state after all moves:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 0) (hand (Both Duke Captain)))))
+     (deck
+      (Captain Contessa Ambassador Contessa Duke Ambassador Duke Assassin
+       Contessa Assassin)))
+    |}];
+  return ()
+
+let%expect_test
+    "assassination and successfully challenged block lose two influence" =
+  let%bind () =
+    run_test
+      [
+        (0, Choose_action `Income);
+        (1, Choose_action `Income);
+        (0, Choose_action (`Assassinate (Player_id.of_int 1)));
+        (1, Offer_challenge `No_challenge);
+        (1, Choose_assasination_response `Block);
+        (0, Offer_challenge `Challenge);
+        (1, Reveal_card `Card_1);
+      ]
+  in
+  [%expect
+    {|
+    Initial game state:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))
+       ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
+     (deck
+      (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
+       Contessa)))
+    Player 0: Choose_action: Income
+    Player 0: Player 0 chose Income
+    Player 1: Player 0 chose Income
+    Player 1: Choose_action: Income
+    Player 1: Player 1 chose Income
+    Player 0: Player 1 chose Income
+    Player 0: Choose_action: Assassinate 1
+    Player 1: Offer_challenge
+    Player 1: Choose_assasination_response
+    Player 0: Offer_challenge
+    Player 1: Reveal_card
+    Game state after all moves:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 0) (hand (Both Duke Assassin)))))
+     (deck
+      (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
        Contessa)))
     |}];
   return ()
