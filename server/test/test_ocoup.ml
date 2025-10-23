@@ -106,7 +106,7 @@ end = struct
     return ()
 end
 
-let run_test moves_list =
+let run_test ~starting_cards moves_list =
   let moves = Queue.of_list moves_list in
   let game_state =
     let open Game in
@@ -120,7 +120,10 @@ let run_test moves_list =
                 (module Test_player_io)
                 (Test_player_io.create 0 moves);
             coins = 2;
-            hand = Hand.Both (Card.Duke, Card.Assassin);
+            hand =
+              Hand.Both
+                ( List.nth_exn starting_cards 0 |> fst,
+                  List.nth_exn starting_cards 0 |> snd );
           };
           {
             Player.id = Player_id.of_int 1;
@@ -129,7 +132,10 @@ let run_test moves_list =
                 (module Test_player_io)
                 (Test_player_io.create 1 moves);
             coins = 2;
-            hand = Hand.Both (Card.Captain, Card.Ambassador);
+            hand =
+              Hand.Both
+                ( List.nth_exn starting_cards 1 |> fst,
+                  List.nth_exn starting_cards 1 |> snd );
           };
         ];
       deck =
@@ -164,6 +170,8 @@ let run_test moves_list =
 let%expect_test "basic interaction" =
   let%bind () =
     run_test
+      ~starting_cards:
+        [ (Card.Duke, Card.Assassin); (Card.Captain, Card.Ambassador) ]
       [
         (0, Response.Choose_action `Income);
         (1, Choose_action `Tax);
@@ -203,6 +211,8 @@ let%expect_test "basic interaction" =
 let%expect_test "foreign aid block can be challenged" =
   let%bind () =
     run_test
+      ~starting_cards:
+        [ (Card.Duke, Card.Assassin); (Card.Captain, Card.Ambassador) ]
       [
         (0, Choose_action `Foreign_aid);
         (1, Choose_foreign_aid_response `Block);
@@ -237,9 +247,10 @@ let%expect_test "foreign aid block can be challenged" =
 let%expect_test "contessa block protects against assassination" =
   let%bind () =
     run_test
+      ~starting_cards:
+        [ (Card.Duke, Card.Assassin); (Card.Captain, Card.Contessa) ]
       [
-        (0, Choose_action `Tax);
-        (1, Offer_challenge `No_challenge);
+        (0, Choose_action `Income);
         (1, Choose_action `Income);
         (0, Choose_action (`Assassinate (Player_id.of_int 1)));
         (1, Offer_challenge `No_challenge);
@@ -248,46 +259,42 @@ let%expect_test "contessa block protects against assassination" =
         (0, Reveal_card `Card_2);
       ]
   in
-  [%expect.unreachable];
+  [%expect
+    {|
+    Initial game state:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))
+       ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Contessa)))))
+     (deck
+      (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
+       Contessa)))
+    Player 0: Choose_action: Income
+    Player 0: Player 0 chose Income
+    Player 1: Player 0 chose Income
+    Player 1: Choose_action: Income
+    Player 1: Player 1 chose Income
+    Player 0: Player 1 chose Income
+    Player 0: Choose_action: Assassinate 1
+    Player 1: Offer_challenge
+    Player 1: Choose_assasination_response
+    Player 0: Offer_challenge
+    Player 0: Reveal_card
+    Game state after all moves:
+    ((players
+      (((id 1) (player_io <opaque>) (coins 3) (hand (Both Captain Captain)))
+       ((id 0) (player_io <opaque>) (coins 0)
+        (hand (One (hidden Duke) (revealed Assassin))))))
+     (deck
+      (Captain Contessa Ambassador Contessa Duke Ambassador Duke Assassin
+       Contessa Contessa)))
+    |}];
   return ()
-[@@expect.uncaught_exn {|
-  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
-     This is strongly discouraged as backtraces are fragile.
-     Please change this test to not include a backtrace. *)
-  (monitor.ml.Error ("Unexpected player action" (i 0) (t.player_index 1))
-    ("Called from Base__Error.raise_s in file \"src/error.ml\", line 10, characters 26-47"
-      "Called from Test_ocoup.Test_player_io.dequeue_exn in file \"test/test_ocoup.ml\", lines 43-44, characters 6-78"
-      "Called from Test_ocoup.Test_player_io.reveal_card in file \"test/test_ocoup.ml\", line 81, characters 19-32"
-      "Called from Ocoup__Game.lose_influence in file \"lib/game.ml\", lines 193-196, characters 10-27"
-      "Called from Ocoup__Game.handle_challenge.(fun) in file \"lib/game.ml\", line 320, characters 12-54"
-      "Caught by monitor block_on_async"))
-  Raised at Base__Result.ok_exn in file "src/result.ml" (inlined), line 279, characters 17-26
-  Called from Async_unix__Thread_safe.block_on_async_exn in file "src/thread_safe.ml", line 163, characters 29-63
-  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 142, characters 10-28
-
-  Trailing output
-  ---------------
-  Initial game state:
-  ((players
-    (((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))
-     ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
-   (deck
-    (Ambassador Contessa Captain Contessa Ambassador Duke Duke Captain Assassin
-     Contessa)))
-  Player 0: Choose_action: Tax
-  Player 1: Offer_challenge
-  Player 1: Choose_action: Income
-  Player 1: Player 1 chose Income
-  Player 0: Player 1 chose Income
-  Player 0: Choose_action: Assassinate 1
-  Player 1: Offer_challenge
-  Player 1: Choose_assasination_response
-  Player 0: Offer_challenge
-  |}]
 
 let%expect_test "ambassador block prevents steal" =
   let%bind () =
     run_test
+      ~starting_cards:
+        [ (Card.Duke, Card.Assassin); (Card.Captain, Card.Ambassador) ]
       [
         (0, Choose_action (`Steal (Player_id.of_int 1)));
         (1, Offer_challenge `No_challenge);
@@ -321,6 +328,8 @@ let%expect_test "ambassador block prevents steal" =
 let%expect_test "failed challenge and assassination cost two influence" =
   let%bind () =
     run_test
+      ~starting_cards:
+        [ (Card.Duke, Card.Assassin); (Card.Captain, Card.Ambassador) ]
       [
         (0, Choose_action `Income);
         (1, Choose_action `Income);
@@ -362,6 +371,8 @@ let%expect_test
     "assassination and successfully challenged block lose two influence" =
   let%bind () =
     run_test
+      ~starting_cards:
+        [ (Card.Duke, Card.Assassin); (Card.Captain, Card.Ambassador) ]
       [
         (0, Choose_action `Income);
         (1, Choose_action `Income);
