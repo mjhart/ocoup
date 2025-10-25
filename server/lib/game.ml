@@ -308,21 +308,21 @@ let handle_challenge game_state acting_player_id (action : Challengable.t) =
         Game_state.has_card game_state acting_player_id required_card
       in
       let%bind.Deferred.Result () =
-        Player_io.notify_of_challenge
-          (Game_state.get_player_exn game_state acting_player_id).player_io
-          ~challenging_player_id:challenger_player_id ~has_required_card
+        Game_state.players game_state
+        (* it's ok to do this sequntially. There's no race upon receiving this information (I think). *)
+        |> Deferred.List.iter ~how:`Sequential ~f:(fun player ->
+               Player_io.notify_of_challenge player.player_io
+                 ~challenging_player_id:challenger_player_id ~has_required_card)
         >>| Result.return
       in
       match has_required_card with
       | false ->
           let%map.Deferred.Result new_game_state =
-            (* TODO don't know who challenged *)
             lose_influence game_state acting_player_id
           in
           `Successfully_challenged new_game_state
       | true ->
           let%bind.Deferred.Result game_state_after_new_card =
-            (* TODO don't know who challenged *)
             randomly_get_new_card game_state acting_player_id required_card
             >>| Result.return
           in
