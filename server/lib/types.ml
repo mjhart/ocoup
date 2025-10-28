@@ -2,8 +2,13 @@ open! Core
 open! Async
 
 module Card = struct
-  type t = Duke | Assassin | Captain | Ambassador | Contessa
-  [@@deriving equal, sexp]
+  module T = struct
+    type t = Duke | Assassin | Captain | Ambassador | Contessa
+    [@@deriving equal, sexp, compare]
+  end
+
+  include T
+  include Comparable.Make_plain (T)
 
   let to_string = function
     | Duke -> "Duke"

@@ -4,8 +4,9 @@ open! Async
 (* The characters (and cards) available in the game *)
 module Card : sig
   type t = Duke | Assassin | Captain | Ambassador | Contessa
-  [@@deriving equal, sexp]
+  [@@deriving equal, sexp, compare]
 
+  include Comparable.S_plain with type t := t
   include Stringable.S with type t := t
 end
 

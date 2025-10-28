@@ -151,18 +151,26 @@ let run_test ?print_notifications ~starting_cards moves_list =
               hand = Hand.Both (card_1, card_2);
             });
       deck =
-        [
-          Card.Ambassador;
-          Contessa;
-          Captain;
-          Contessa;
-          Ambassador;
-          Duke;
-          Duke;
-          Captain;
-          Assassin;
-          Contessa;
-        ];
+        (let card_counts =
+           Map.of_key_set
+             (Set.of_list
+                (module Card)
+                [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
+             ~f:(Fn.const 3)
+         in
+         let new_card_counts =
+           List.fold
+             (List.concat_map starting_cards ~f:(fun (card_1, card_2) ->
+                  [ card_1; card_2 ]))
+             ~init:card_counts
+             ~f:(fun acc card ->
+               Map.update acc card ~f:(function
+                 | Some count -> count - 1
+                 | None -> 0))
+         in
+         Map.to_alist new_card_counts
+         |> List.concat_map ~f:(fun (card, count) ->
+                List.init count ~f:(Fn.const card)));
     }
   in
   print_endline "Initial game state:";

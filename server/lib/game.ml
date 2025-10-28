@@ -144,9 +144,8 @@ module Game_state = struct
       | num_players -> Deferred.Or_error.return num_players
     in
     let deck =
-      Random.self_init ();
-      let rand = fun () -> Random.bits () in
-      List.sort ~compare:(fun _ _ -> (rand () mod 3) - 1) sorted_deck
+      (* Random.self_init (); *)
+      List.permute sorted_deck
     in
     let paired_deck, _always_none =
       List.fold deck ~init:([], None) ~f:(fun (pairs_acc, prev) card ->
