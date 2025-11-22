@@ -64,4 +64,7 @@ let%expect_test "tourament" =
     Game 0 winner: 3
     Game 1 winner: 0
     |}];
+  let scores = score_results result in
+  print_s [%sexp (scores : int Ocoup.For_testing.Types.Player_id.Map.t)];
+  [%expect {| ((0 12) (1 3) (2 10) (3 9) (4 5) (5 9) (6 7)) |}];
   return ()

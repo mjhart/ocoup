@@ -21,10 +21,31 @@ let create_rounds players =
   in
   List.init num_rounds ~f:(fun _i -> create_round (List.permute players))
 
-let score_results (_results : (Game.Game_state.t, exn) result list list) =
-  (* TODO don't know the order in which players were eliminated. Maybe tail the game events? *)
-  (* TODO need to correlate player_ids to some stable id for players *)
-  0
+let score_results (results : Game.Game_state.t Or_error.t list list) =
+  let score_game game_state =
+    let Game.Game_state.{ eliminated_players; players; _ } = game_state in
+    let eliminated_in_order = List.rev eliminated_players in
+    (* Score eliminated players: index is their score (0, 1, 2, ...) *)
+    let eliminated_scores =
+      List.mapi eliminated_in_order ~f:(fun i player ->
+          (Game.Player.(player.id), i))
+    in
+    (* Winner gets points equal to num_eliminated + 1 bonus point *)
+    let winner_scores =
+      List.map players ~f:(fun player ->
+          let num_eliminated = List.length eliminated_players in
+          (Game.Player.(player.id), num_eliminated + 1))
+    in
+    eliminated_scores @ winner_scores
+  in
+  List.concat_map results ~f:(fun round ->
+      List.concat_map round ~f:(fun game_result ->
+          let game_state = Or_error.ok_exn game_result in
+          score_game game_state))
+  |> List.fold ~init:Player_id.Map.empty ~f:(fun acc (player_id, score) ->
+         Map.update acc player_id ~f:(function
+           | None -> score
+           | Some existing -> existing + score))
 
 let create ~max_players = { players = []; max_players }
 

@@ -29,13 +29,20 @@ end
 module Player_id : sig
   type t [@@deriving sexp, equal, compare, yojson]
 
+  include Comparable.S with type t := t
+
   val of_int : int -> t
   val to_int : t -> int
   val to_string : t -> string
 end = struct
   open Ppx_yojson_conv_lib.Yojson_conv.Primitives
 
-  type t = int [@@deriving sexp, equal, compare, yojson]
+  module T = struct
+    type t = int [@@deriving sexp, equal, compare, yojson]
+  end
+
+  include T
+  include Comparable.Make (T)
 
   let of_int = Fn.id
   let to_int = Fn.id
