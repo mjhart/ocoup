@@ -145,4 +145,6 @@ module type Player_io_S = sig
     challenging_player_id:Player_id.t ->
     has_required_card:bool ->
     unit Deferred.t
+
+  (* TODO notify_of_game_end ? *)
 end

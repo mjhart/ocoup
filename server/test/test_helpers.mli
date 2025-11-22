@@ -20,3 +20,5 @@ val run_test :
   starting_cards:(Card.t * Card.t) list ->
   (int * Response.t) list ->
   unit Deferred.t
+
+module Default_action_player_io : Player_io_S with type t = unit

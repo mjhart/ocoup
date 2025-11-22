@@ -3,18 +3,15 @@ open! Async
 open Player_ios
 open Game
 
+(* TODOS:
+   - Visible_game_state -> Game_state and Game_state -> Hidden_game_state
+   - maybe replace Player_io module with a record
+   - Logging instead of all the print_s 
+   - create_rounds should really make sure every player is in the odd sized game the same number of times
+*)
+
 let run_game ~game_state =
-  let%bind () =
-    Game_state.players game_state
-    |> List.map ~f:(fun player ->
-           Player_io.notify_of_game_start player.player_io
-             ~visible_game_state:
-               (Game_state.to_visible_game_state game_state player.id))
-    |> Deferred.all_unit
-  in
-  let%map final_game_state =
-    Deferred.repeat_until_finished game_state take_turn
-  in
+  let%map final_game_state = Game.run_game ~game_state in
   print_s [%message "Game over" (final_game_state : Game_state.t)]
 
 module Server = struct
@@ -221,4 +218,5 @@ module For_testing = struct
   module Game = Game
   module Types = Types
   module Player_ios = Player_ios
+  module Tournament = Tournament
 end

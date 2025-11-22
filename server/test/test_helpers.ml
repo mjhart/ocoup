@@ -46,7 +46,7 @@ end = struct
     in
     if i <> t.player_index then
       raise_s
-        [%message "Unexpected player action" (i : int) (t.player_index : int)];
+        [%message "Player going out of turn" (i : int) (t.player_index : int)];
     print_endline [%string "Player %{i#Int}: %{choice#Response}"];
     choice
 
@@ -188,3 +188,42 @@ let run_test ?print_notifications ~starting_cards moves_list =
   print_newline ();
   print_endline "Game state after all moves:";
   print_s [%sexp (result : Game_state.t)]
+
+module Default_action_player_io : Player_io_S with type t = unit = struct
+  type t = unit
+
+  let choose_action _t ~visible_game_state =
+    let Visible_game_state.{ coins; other_players; _ } = visible_game_state in
+    let Visible_game_state.Other_player.{ player_id = target; _ } =
+      List.hd_exn other_players
+    in
+    return (if coins >= 7 then `Coup target else `Income)
+
+  let choose_assasination_response _t ~visible_game_state:_
+      ~asassinating_player_id:_ =
+    return `Allow
+
+  let choose_foreign_aid_response _t ~visible_game_state:_ ()
+      ~cancelled_reason:_ =
+    return `Allow
+
+  let choose_steal_response _t ~visible_game_state:_ ~stealing_player_id:_ =
+    return `Allow
+
+  let choose_cards_to_return _t ~visible_game_state:_ card_1 card_2 _hand =
+    return (card_1, card_2)
+
+  let reveal_card _t ~visible_game_state:_ ~card_1:_ ~card_2:_ = return `Card_1
+
+  let offer_challenge _t ~visible_game_state:_ _acting_player_id _challengable
+      ~cancelled_reason:_ =
+    return `No_challenge
+
+  let notify_of_game_start _t ~visible_game_state:_ = return ()
+  let notify_of_action_choice _t _player_id _action = return ()
+  let notify_of_lost_influence _t _player_id _card = return ()
+  let notify_of_new_card _t _card = return ()
+
+  let notify_of_challenge _t ~challenging_player_id:_ ~has_required_card:_ =
+    return ()
+end

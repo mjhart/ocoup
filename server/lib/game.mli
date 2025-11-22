@@ -20,8 +20,15 @@ module Game_state : sig
   val init :
     (Player_id.t -> Player_ios.Player_io.t Deferred.t) list ->
     t Deferred.Or_error.t
+
+  val init' :
+    (Player_id.t * (unit -> Player_ios.Player_io.t Deferred.t)) list ->
+    t Deferred.Or_error.t
+  (** Allow client to provide [Playe_id.t]s *)
 end
 
 val take_turn :
   Game_state.t ->
   [ `Finished of Game_state.t | `Repeat of Game_state.t ] Deferred.t
+
+val run_game : game_state:Game_state.t -> Game_state.t Deferred.t

@@ -134,7 +134,7 @@ module Game_state = struct
     |> List.concat_map ~f:(fun _i ->
            [ Card.Duke; Assassin; Captain; Ambassador; Contessa ])
 
-  let init player_io_creators =
+  let init' player_io_creators =
     let%bind.Deferred.Or_error num_players =
       match List.length player_io_creators with
       | 0 -> Deferred.Or_error.error_string "No players"
@@ -156,10 +156,9 @@ module Game_state = struct
     let player_cards, remaining_cards = List.split_n paired_deck num_players in
     let%map players =
       List.zip_exn player_cards player_io_creators
-      |> Deferred.List.mapi ~how:`Sequential
-           ~f:(fun i ((card_1, card_2), player_io_creator) ->
-             let id = Player_id.of_int i in
-             let%map player_io = player_io_creator id in
+      |> Deferred.List.map ~how:`Sequential
+           ~f:(fun ((card_1, card_2), (id, player_io_creator)) ->
+             let%map player_io = player_io_creator () in
              {
                Player.id;
                coins = 2;
@@ -172,6 +171,14 @@ module Game_state = struct
           [ carrd_1; card_2 ])
     in
     Ok { players; deck }
+
+  let init player_io_creators =
+    let player_io_creators' =
+      List.mapi player_io_creators ~f:(fun i player_io_creator ->
+          let id = Player_id.of_int i in
+          (id, fun () -> player_io_creator id))
+    in
+    init' player_io_creators'
 end
 
 (* Actions *)
@@ -530,8 +537,10 @@ let take_turn_result game_state =
         match Game_state.is_valid_action game_state active_player.id action with
         | true -> `Finished action
         | false -> (
+            (* TODO this should tell client *)
             print_endline "Invalid action";
             match retries with
+            (* this does not work in case of coup *)
             | 0 -> `Finished `Income
             | _ -> `Repeat (retries - 1)))
     >>| Result.return
@@ -577,3 +586,14 @@ let take_turn game_state =
   match%bind take_turn_result game_state with
   | Ok game_state' -> return (`Repeat (Game_state.end_turn game_state'))
   | Error final_game_state -> return (`Finished final_game_state)
+
+let run_game ~game_state =
+  let%bind () =
+    Game_state.players game_state
+    |> List.map ~f:(fun player ->
+           Player_io.notify_of_game_start player.player_io
+             ~visible_game_state:
+               (Game_state.to_visible_game_state game_state player.id))
+    |> Deferred.all_unit
+  in
+  Deferred.repeat_until_finished game_state take_turn

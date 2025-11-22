@@ -290,6 +290,7 @@ let%expect_test "1.2 forced coup at 10+ coins" =
         (0, Choose_action `Foreign_aid);
         (1, Choose_foreign_aid_response `Allow);
         (1, Choose_action `Income);
+        (0, Choose_action `Income);
         (0, Choose_action (`Coup (Player_id.of_int 1)));
         (1, Reveal_card `Card_1);
       ]
@@ -313,6 +314,8 @@ let%expect_test "1.2 forced coup at 10+ coins" =
     Player 0: Choose_action: Foreign aid
     Player 1: Choose_foreign_aid_response
     Player 1: Choose_action: Income
+    Player 0: Choose_action: Income
+    Invalid action
     Player 0: Choose_action: Coup 1
     Player 1: Reveal_card
 
