@@ -157,10 +157,57 @@ module Server = struct
                      (Types.Player_id.to_string player_id, `Int score))
               |> fun assoc -> `Assoc assoc
             in
+            (* Convert results to JSON *)
+            let results_json =
+              `List
+                (List.mapi results ~f:(fun round_idx round ->
+                     `Assoc
+                       [
+                         ("round", `Int (round_idx + 1));
+                         ( "games",
+                           `List
+                             (List.mapi round ~f:(fun game_idx game_result ->
+                                  match game_result with
+                                  | Ok game_state ->
+                                      let Game.Game_state.{ players; eliminated_players; _ } =
+                                        game_state
+                                      in
+                                      `Assoc
+                                        [
+                                          ("game", `Int (game_idx + 1));
+                                          ("status", `String "completed");
+                                          ( "winners",
+                                            `List
+                                              (List.map players
+                                                 ~f:(fun Game.Player.{ id; _ } ->
+                                                   `String
+                                                     (Types.Player_id.to_string id)))
+                                          );
+                                          ( "eliminated",
+                                            `List
+                                              (List.rev_map eliminated_players
+                                                 ~f:(fun Game.Player.{ id; _ } ->
+                                                   `String
+                                                     (Types.Player_id.to_string id)))
+                                          );
+                                        ]
+                                  | Error err ->
+                                      `Assoc
+                                        [
+                                          ("game", `Int (game_idx + 1));
+                                          ("status", `String "error");
+                                          ("error", `String (Error.to_string_hum err));
+                                        ])) );
+                       ]))
+            in
             let response_body =
               Yojson.Safe.to_string
                 (`Assoc
-                   [ ("status", `String "completed"); ("scores", scores_json) ])
+                   [
+                     ("status", `String "completed");
+                     ("scores", scores_json);
+                     ("results", results_json);
+                   ])
             in
             let headers =
               Cohttp.Header.of_list

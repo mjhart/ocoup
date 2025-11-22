@@ -31,6 +31,71 @@ async function createTournament() {
   return data;
 }
 
+// Helper function to handle game messages following Default_action_player_io logic
+function handleGameMessage(ws, message, playerNum) {
+  const { type } = message;
+
+  // Notifications (no response needed)
+  if (['Action_chosen', 'Lost_influence', 'New_card', 'Challenge', 'Player_responded', 'Game_start'].includes(type)) {
+    return;
+  }
+
+  let response;
+
+  switch (type) {
+    case 'Choose_action':
+      // If coins >= 7, coup the first available player, otherwise take income
+      const coins = message.visible_game_state.coins;
+      const otherPlayers = message.visible_game_state.other_players;
+
+      if (coins >= 7 && otherPlayers.length > 0) {
+        const targetPlayerId = otherPlayers[0].player_id;
+        response = { type: 'Coup', player_id: targetPlayerId };
+      } else {
+        response = { type: 'Income' };
+      }
+      break;
+
+    case 'Choose_assasination_response':
+      // Always allow assassination
+      response = { type: 'Allow' };
+      break;
+
+    case 'Choose_foreign_aid_response':
+      // Always allow foreign aid
+      response = { type: 'Allow' };
+      break;
+
+    case 'Choose_steal_response':
+      // Always allow steal
+      response = { type: 'Allow' };
+      break;
+
+    case 'Choose_cards_to_return':
+      // Return the first two cards from the list
+      const cards = message.cards;
+      response = [cards[0], cards[1]];
+      break;
+
+    case 'Reveal_card':
+      // Always reveal Card_1
+      response = { type: 'Card_1' };
+      break;
+
+    case 'Offer_challenge':
+      // Never challenge
+      response = { type: 'No_challenge' };
+      break;
+
+    default:
+      console.log(`   ⚠️  Player ${playerNum}: Unknown message type: ${type}`);
+      return;
+  }
+
+  // Send response
+  ws.send(JSON.stringify(response));
+}
+
 // Step 2: Register a player via WebSocket
 function registerPlayer(tournamentId, playerNum) {
   return new Promise((resolve, reject) => {
@@ -55,9 +120,11 @@ function registerPlayer(tournamentId, playerNum) {
         console.log(`   ✅ Player ${playerNum}: Registered (ID: ${message.player_id})`);
         registered = true;
         resolve({ ws, playerId: message.player_id });
-      } else {
-        console.log(`   🎲 Player ${message.player_id}: received message ${JSON.stringify(message)}`);
+        return;
       }
+
+      // Handle game messages after registration
+      handleGameMessage(ws, message, playerNum);
     });
 
     ws.on('error', (error) => {
@@ -123,11 +190,37 @@ async function startTournament(tournamentId) {
 }
 
 // Step 5: Display results
-function displayResults(results) {
+function displayResults(data) {
+  // Display tournament results
+  if (data.results) {
+    console.log('📋 Tournament Results:\n');
+    console.log('═'.repeat(60));
+
+    data.results.forEach(round => {
+      console.log(`\n🎲 Round ${round.round}:`);
+      console.log('─'.repeat(60));
+
+      round.games.forEach(game => {
+        if (game.status === 'completed') {
+          console.log(`  Game ${game.game}:`);
+          console.log(`    🏆 Winner(s): ${game.winners.join(', ')}`);
+          if (game.eliminated.length > 0) {
+            console.log(`    ❌ Eliminated (in order): ${game.eliminated.join(', ')}`);
+          }
+        } else {
+          console.log(`  Game ${game.game}: ⚠️  Error - ${game.error}`);
+        }
+      });
+    });
+
+    console.log('\n' + '═'.repeat(60) + '\n');
+  }
+
+  // Display final scores
   console.log('📊 Final Scores:\n');
   console.log('─'.repeat(40));
 
-  const scores = Object.entries(results.scores)
+  const scores = Object.entries(data.scores)
     .map(([playerId, score]) => ({ playerId, score }))
     .sort((a, b) => b.score - a.score);
 
