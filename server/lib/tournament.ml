@@ -2,18 +2,10 @@ open! Core
 open Async
 open Types
 
-type closed
-type registration
-type in_progress
-
-type 'a t =
-  | Closed : closed t
-  | Registration : {
-      players : (Player_id.t * Player_ios.Player_io.t) list;
-      max_players : int;
-    }
-      -> registration t
-  | In_progress : in_progress t
+type t = {
+  players : (Player_id.t * Player_ios.Player_io.t) list;
+  max_players : int;
+}
 
 let num_rounds = 5
 
@@ -34,19 +26,18 @@ let score_results (_results : (Game.Game_state.t, exn) result list list) =
   (* TODO need to correlate player_ids to some stable id for players *)
   0
 
-let create ~max_players = Registration { players = []; max_players }
+let create ~max_players = { players = []; max_players }
 
-let _register (state : registration t) player_io =
-  let (Registration { players; max_players }) = state in
+let register (state : t) player_io =
+  let { players; max_players } = state in
   let num_players = List.length players in
   if num_players < max_players then
     let player_id = Types.Player_id.of_int num_players in
-    Ok
-      (Registration { players = (player_id, player_io) :: players; max_players })
+    Ok { players = (player_id, player_io) :: players; max_players }
   else error_s [%message "Game is full"]
 
-let _start (state : registration t) =
-  let (Registration { players; max_players = _ }) = state in
+let start (state : t) =
+  let { players; max_players = _ } = state in
 
   let rounds = create_rounds players in
   let%map results =
@@ -61,10 +52,6 @@ let _start (state : registration t) =
               >>| Or_error.ok_exn
               (* This is fine - only fails if given too few players *)
             in
-            (* return (Ok game_state) *)
-            Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
-                Game.run_game ~game_state)))
+            Deferred.Or_error.try_with (fun () -> Game.run_game ~game_state)))
   in
   results
-
-let _finish (_state : in_progress t) = Closed

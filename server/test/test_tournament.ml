@@ -25,21 +25,21 @@ let%expect_test "test create rounds" =
 
 let%expect_test "tourament" =
   let tourament = create ~max_players:7 in
-  let _tourament_with_players =
+  let tourament_with_players =
     List.fold (List.range 0 7) ~init:tourament ~f:(fun tournament_acc _i ->
         let player_io =
           Ocoup.For_testing.Player_ios.Player_io.create
             (module Test_helpers.Default_action_player_io)
             ()
         in
-        _register tournament_acc player_io |> ok_exn)
+        register tournament_acc player_io |> ok_exn)
   in
-  let%bind result = _start _tourament_with_players in
+  let%bind result = start tourament_with_players in
   List.iteri result ~f:(fun i round ->
       print_endline [%string "Round %{i#Int}"];
       List.iteri round ~f:(fun j game ->
           let Ocoup.For_testing.Game.Player.{ id = winner; _ } =
-            Result.ok_exn game |> Ocoup.For_testing.Game.Game_state.players
+            ok_exn game |> Ocoup.For_testing.Game.Game_state.players
             |> List.hd_exn
           in
           print_endline
