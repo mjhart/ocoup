@@ -1,6 +1,5 @@
 open! Core
 open! Async
-open Player_ios
 open Game
 
 (* TODOS:
@@ -95,8 +94,8 @@ module Server = struct
           let%bind game_state =
             Game_state.init
               [
-                Player_io.llm ~model:Llm_player_io.gpt_4o;
-                Player_io.llm ~model:Llm_player_io.o3_mini;
+                Player_ios.llm ~model:Llm_player_io.gpt_4o;
+                Player_ios.llm ~model:Llm_player_io.o3_mini;
                 (fun player_id ->
                   let player_io =
                     Websocket_player_io.create ~player_id
@@ -104,7 +103,7 @@ module Server = struct
                       ~writer
                   in
                   return
-                    (Player_io.create (module Websocket_player_io) player_io));
+                    (Player_ios.create (module Websocket_player_io) player_io));
               ]
             >>| Or_error.ok_exn
           in
@@ -132,15 +131,15 @@ module Server = struct
           let%bind game_state =
             Game_state.init
               [
-                Player_io.llm ~model:Llm_player_io.gpt_4o;
-                Player_io.llm ~model:Llm_player_io.o3_mini;
+                Player_ios.llm ~model:Llm_player_io.gpt_4o;
+                Player_ios.llm ~model:Llm_player_io.o3_mini;
                 (fun player_id ->
                   let player_io =
                     Websocket_player_io.create ~player_id
                       ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
                       ~writer:from_game
                   in
-                  Player_io.create (module Websocket_player_io) player_io
+                  Player_ios.create (module Websocket_player_io) player_io
                   |> return);
               ]
             >>| Or_error.ok_exn
@@ -202,11 +201,11 @@ end
 let run_server ~port = Server.run_server ~port
 
 let player_io_of_string = function
-  | "cli" -> Player_io.cli
-  | "gpt-4o" -> Player_io.llm ~model:Llm_player_io.gpt_4o
-  | "o3-mini" -> Player_io.llm ~model:Llm_player_io.o3_mini
+  | "cli" -> Player_ios.cli
+  | "gpt-4o" -> Player_ios.llm ~model:Llm_player_io.gpt_4o
+  | "o3-mini" -> Player_ios.llm ~model:Llm_player_io.o3_mini
   | "gemini-2-5" ->
-      Player_io.gemini ~model:Gemini_player_io.gemini_2_5_pro_exp_03_25
+      Player_ios.gemini ~model:Gemini_player_io.gemini_2_5_pro_exp_03_25
   | unrecognized -> failwith (sprintf "Unrecognized player io: %s" unrecognized)
 
 let run_game player_ios =

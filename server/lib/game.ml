@@ -1,12 +1,11 @@
 open! Core
 open! Async
 open Types
-open Player_ios
 
 module Player = struct
   type t = {
     id : Player_id.t;
-    player_io : (Player_io.t[@sexp.opaque]);
+    player_io : (Player_ios.t[@sexp.opaque]);
     coins : int;
     hand : Hand.t;
   }
@@ -199,7 +198,7 @@ let lose_influence game_state target_player_id =
     match player.hand with
     | Hand.Both (card_1, card_2) ->
         let%map.Deferred.Result revealed_card_choice =
-          Player_io.reveal_card player.player_io
+          Player_ios.reveal_card player.player_io
             ~visible_game_state:
               (Game_state.to_visible_game_state game_state player.id)
             ~card_1 ~card_2
@@ -241,7 +240,7 @@ let lose_influence game_state target_player_id =
   let%map.Deferred.Result () =
     Game_state.players new_game_state
     |> List.map ~f:(fun player ->
-           Player_io.notify_of_lost_influence player.player_io target_player_id
+           Player_ios.notify_of_lost_influence player.player_io target_player_id
              revealed_card)
     |> Deferred.all_unit >>| Result.return
   in
@@ -266,7 +265,7 @@ let randomly_get_new_card game_state active_player_id card_to_replace =
         { player with hand = new_hand })
   in
   let%map () =
-    Player_io.notify_of_new_card
+    Player_ios.notify_of_new_card
       (Game_state.get_player_exn new_game_state active_player_id).player_io
       replacement_card
   in
@@ -313,7 +312,7 @@ let handle_challenge game_state acting_player_id (action : Challengable.t) =
   let%bind challenge_result =
     handle_response_race game_state acting_player_id
       ~f:(fun player cancelled_reason ->
-        Player_io.offer_challenge player.player_io
+        Player_ios.offer_challenge player.player_io
           ~visible_game_state:
             (Game_state.to_visible_game_state game_state player.id)
           acting_player_id action ~cancelled_reason
@@ -332,7 +331,7 @@ let handle_challenge game_state acting_player_id (action : Challengable.t) =
         Game_state.players game_state
         (* it's ok to do this sequntially. There's no race upon receiving this information (I think). *)
         |> Deferred.List.iter ~how:`Sequential ~f:(fun player ->
-               Player_io.notify_of_challenge player.player_io
+               Player_ios.notify_of_challenge player.player_io
                  ~challenging_player_id:challenger_player_id ~has_required_card)
         >>| Result.return
       in
@@ -370,7 +369,7 @@ let assassinate game_state active_player_id target_player_id =
       | None -> Deferred.Result.return post_challenge_game_state
       | Some target_player -> (
           match%bind.Deferred.Result
-            Player_io.choose_assasination_response target_player.player_io
+            Player_ios.choose_assasination_response target_player.player_io
               ~visible_game_state:
                 (Game_state.to_visible_game_state game_state target_player_id)
               ~asassinating_player_id:active_player_id
@@ -401,7 +400,7 @@ let take_foreign_aid game_state =
   match%bind
     handle_response_race game_state (Game_state.get_active_player game_state).id
       ~f:(fun player cancelled_reason ->
-        Player_io.choose_foreign_aid_response player.player_io
+        Player_ios.choose_foreign_aid_response player.player_io
           ~visible_game_state:
             (Game_state.to_visible_game_state game_state player.id)
           () ~cancelled_reason
@@ -461,7 +460,7 @@ let steal game_state target_player_id =
       | None -> Deferred.Result.return post_challenge_game_state
       | Some target_player -> (
           match%bind.Deferred.Result
-            Player_io.choose_steal_response target_player.player_io
+            Player_ios.choose_steal_response target_player.player_io
               ~visible_game_state:
                 (Game_state.to_visible_game_state post_challenge_game_state
                    target_player.id)
@@ -493,7 +492,7 @@ let exchange game_state =
   match Game_state.deck game_state with
   | card_choice_1 :: card_choice_2 :: rest ->
       let%map.Deferred returned_card_1, returned_card_2 =
-        Player_io.choose_cards_to_return active_player.player_io
+        Player_ios.choose_cards_to_return active_player.player_io
           ~visible_game_state:
             (Game_state.to_visible_game_state game_state active_player.id)
           card_choice_1 card_choice_2 active_player.hand
@@ -545,7 +544,7 @@ let take_turn_result game_state =
   let%bind.Deferred.Result action =
     Deferred.repeat_until_finished 2 (fun retries ->
         let%map action =
-          Player_io.choose_action active_player.player_io
+          Player_ios.choose_action active_player.player_io
             ~visible_game_state:
               (Game_state.to_visible_game_state game_state active_player.id)
         in
@@ -565,7 +564,7 @@ let take_turn_result game_state =
       let%map.Deferred.Result () =
         Game_state.players game_state
         |> List.map ~f:(fun player ->
-               Player_io.notify_of_action_choice player.player_io
+               Player_ios.notify_of_action_choice player.player_io
                  active_player.id action)
         |> Deferred.all_unit >>| Result.return
       in
@@ -577,7 +576,7 @@ let take_turn_result game_state =
       let%bind.Deferred.Result () =
         Game_state.players game_state
         |> List.map ~f:(fun player ->
-               Player_io.notify_of_action_choice player.player_io
+               Player_ios.notify_of_action_choice player.player_io
                  active_player.id action)
         |> Deferred.all_unit >>| Result.return
       in
@@ -588,7 +587,7 @@ let take_turn_result game_state =
       let%bind.Deferred.Result () =
         Game_state.players game_state
         |> List.map ~f:(fun player ->
-               Player_io.notify_of_action_choice player.player_io
+               Player_ios.notify_of_action_choice player.player_io
                  active_player.id action)
         |> Deferred.all_unit >>| Result.return
       in
@@ -606,7 +605,7 @@ let run_game ~game_state =
   let%bind () =
     Game_state.players game_state
     |> List.map ~f:(fun player ->
-           Player_io.notify_of_game_start player.player_io
+           Player_ios.notify_of_game_start player.player_io
              ~visible_game_state:
                (Game_state.to_visible_game_state game_state player.id))
     |> Deferred.all_unit

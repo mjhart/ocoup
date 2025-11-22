@@ -5,7 +5,7 @@ open Types
 module Player : sig
   type t = {
     id : Player_id.t;
-    player_io : Player_ios.Player_io.t;
+    player_io : Player_ios.t;
     coins : int;
     hand : Hand.t;
   }
@@ -25,11 +25,10 @@ module Game_state : sig
   val to_visible_game_state : t -> Player_id.t -> Visible_game_state.t
 
   val init :
-    (Player_id.t -> Player_ios.Player_io.t Deferred.t) list ->
-    t Deferred.Or_error.t
+    (Player_id.t -> Player_ios.t Deferred.t) list -> t Deferred.Or_error.t
 
   val init' :
-    (Player_id.t * (unit -> Player_ios.Player_io.t Deferred.t)) list ->
+    (Player_id.t * (unit -> Player_ios.t Deferred.t)) list ->
     t Deferred.Or_error.t
   (** Allow client to provide [Playe_id.t]s *)
 end

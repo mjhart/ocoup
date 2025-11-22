@@ -28,7 +28,7 @@ let%expect_test "tourament" =
   let tourament_with_players =
     List.fold (List.range 0 7) ~init:tourament ~f:(fun tournament_acc _i ->
         let player_io =
-          Ocoup.For_testing.Player_ios.Player_io.create
+          Ocoup.For_testing.Player_ios.create
             (module Test_helpers.Default_action_player_io)
             ()
         in

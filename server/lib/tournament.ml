@@ -2,10 +2,7 @@ open! Core
 open Async
 open Types
 
-type t = {
-  players : (Player_id.t * Player_ios.Player_io.t) list;
-  max_players : int;
-}
+type t = { players : (Player_id.t * Player_ios.t) list; max_players : int }
 
 let num_rounds = 5
 

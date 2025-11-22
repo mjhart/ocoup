@@ -144,7 +144,7 @@ let run_test ?print_notifications ~starting_cards moves_list =
             {
               Player.id = Player_id.of_int i;
               player_io =
-                Ocoup.For_testing.Player_ios.Player_io.create
+                Ocoup.For_testing.Player_ios.create
                   (module Test_player_io)
                   (Test_player_io.create i moves print_notifications);
               coins = 2;
