@@ -24,7 +24,8 @@ let%expect_test "basic interaction" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Tax
@@ -38,7 +39,8 @@ let%expect_test "basic interaction" =
        ((id 0) (player_io <opaque>) (coins 3) (hand (Both Assassin Duke)))))
      (deck
       (Assassin Contessa Assassin Duke Contessa Ambassador Captain Ambassador
-       Contessa Captain Duke)))
+       Contessa Captain Duke))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -62,7 +64,8 @@ let%expect_test "foreign aid block can be challenged" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Foreign aid
     Player 1: Choose_foreign_aid_response
@@ -76,7 +79,8 @@ let%expect_test "foreign aid block can be challenged" =
        ((id 0) (player_io <opaque>) (coins 4) (hand (Both Duke Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -103,7 +107,8 @@ let%expect_test "contessa block protects against assassination" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Contessa)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador
-       Ambassador Contessa Contessa)))
+       Ambassador Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Income
@@ -120,7 +125,8 @@ let%expect_test "contessa block protects against assassination" =
         (hand (One (hidden Duke) (revealed Assassin))))))
      (deck
       (Contessa Captain Duke Ambassador Contessa Duke Ambassador Contessa
-       Ambassador Captain Assassin)))
+       Ambassador Captain Assassin))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -144,7 +150,8 @@ let%expect_test "ambassador block prevents steal" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Steal 1
     Player 1: Offer_challenge
@@ -157,7 +164,8 @@ let%expect_test "ambassador block prevents steal" =
        ((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -183,7 +191,8 @@ let%expect_test "failed challenge and assassination cost two influence" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Income
@@ -197,7 +206,10 @@ let%expect_test "failed challenge and assassination cost two influence" =
       (((id 0) (player_io <opaque>) (coins 0) (hand (Both Duke Assassin)))))
      (deck
       (Contessa Captain Duke Contessa Assassin Duke Ambassador Contessa
-       Ambassador Captain Assassin)))
+       Ambassador Captain Assassin))
+     (eliminated_players
+      (((id 1) (player_io <opaque>) (coins 3)
+        (hand (One (hidden Ambassador) (revealed Captain)))))))
     |}];
   return ()
 
@@ -225,7 +237,8 @@ let%expect_test
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Income
@@ -240,7 +253,10 @@ let%expect_test
       (((id 0) (player_io <opaque>) (coins 0) (hand (Both Duke Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players
+      (((id 1) (player_io <opaque>) (coins 3)
+        (hand (One (hidden Ambassador) (revealed Captain)))))))
     |}];
   return ()
 
@@ -261,7 +277,8 @@ let%expect_test "1.1 income action" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Income
@@ -272,7 +289,8 @@ let%expect_test "1.1 income action" =
        ((id 1) (player_io <opaque>) (coins 3) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -303,7 +321,8 @@ let%expect_test "1.2 forced coup at 10+ coins" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Assassin Captain)))))
      (deck
       (Duke Assassin Assassin Captain Captain Ambassador Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -326,7 +345,8 @@ let%expect_test "1.2 forced coup at 10+ coins" =
        ((id 0) (player_io <opaque>) (coins 3) (hand (Both Duke Duke)))))
      (deck
       (Duke Assassin Assassin Captain Captain Ambassador Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -349,7 +369,8 @@ let%expect_test "2.1 successful foreign aid (no block)" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Duke Assassin Assassin Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Foreign aid
     Player 1: Choose_foreign_aid_response
@@ -360,7 +381,8 @@ let%expect_test "2.1 successful foreign aid (no block)" =
        ((id 0) (player_io <opaque>) (coins 4) (hand (Both Captain Assassin)))))
      (deck
       (Duke Duke Duke Assassin Assassin Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -383,7 +405,8 @@ let%expect_test "2.2 duke blocks foreign aid successfully" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Duke Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Foreign aid
     Player 1: Choose_foreign_aid_response
@@ -395,7 +418,8 @@ let%expect_test "2.2 duke blocks foreign aid successfully" =
        ((id 0) (player_io <opaque>) (coins 2) (hand (Both Captain Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -419,7 +443,8 @@ let%expect_test "2.4 successful challenge on foreign aid block" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Duke Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Foreign aid
     Player 1: Choose_foreign_aid_response
@@ -433,7 +458,8 @@ let%expect_test "2.4 successful challenge on foreign aid block" =
         (hand (One (hidden Assassin) (revealed Captain))))))
      (deck
       (Contessa Captain Duke Contessa Duke Duke Ambassador Contessa Ambassador
-       Captain Assassin)))
+       Captain Assassin))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -454,7 +480,8 @@ let%expect_test "3.1 successful tax action" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -465,7 +492,8 @@ let%expect_test "3.1 successful tax action" =
        ((id 0) (player_io <opaque>) (coins 5) (hand (Both Duke Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -488,7 +516,8 @@ let%expect_test "3.2 failed challenge on tax" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -501,7 +530,8 @@ let%expect_test "3.2 failed challenge on tax" =
        ((id 0) (player_io <opaque>) (coins 5) (hand (Both Assassin Assassin)))))
      (deck
       (Contessa Captain Duke Contessa Duke Duke Ambassador Contessa Ambassador
-       Captain Assassin)))
+       Captain Assassin))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -524,7 +554,8 @@ let%expect_test "3.3 successful challenge on tax" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Duke Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -537,7 +568,8 @@ let%expect_test "3.3 successful challenge on tax" =
         (hand (One (hidden Assassin) (revealed Captain))))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -565,7 +597,8 @@ let%expect_test "4.1 successful assassination (no block/challenge)" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Income
@@ -581,7 +614,8 @@ let%expect_test "4.1 successful assassination (no block/challenge)" =
        ((id 0) (player_io <opaque>) (coins 0) (hand (Both Duke Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -606,7 +640,8 @@ let%expect_test "4.4 challenge assassination - actor doesn't have assassin" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Assassin Captain Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Income
@@ -621,7 +656,8 @@ let%expect_test "4.4 challenge assassination - actor doesn't have assassin" =
         (hand (One (hidden Captain) (revealed Duke))))))
      (deck
       (Duke Duke Assassin Assassin Assassin Captain Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -648,7 +684,8 @@ let%expect_test "4.5 challenge contessa block - has contessa" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Contessa)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador
-       Ambassador Contessa Contessa)))
+       Ambassador Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Income
@@ -665,7 +702,8 @@ let%expect_test "4.5 challenge contessa block - has contessa" =
         (hand (One (hidden Assassin) (revealed Duke))))))
      (deck
       (Contessa Captain Duke Ambassador Contessa Duke Ambassador Contessa
-       Ambassador Captain Assassin)))
+       Ambassador Captain Assassin))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -690,7 +728,8 @@ let%expect_test "5.1 successful steal - target has 2+ coins" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Duke Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Steal 1
     Player 1: Offer_challenge
@@ -702,7 +741,8 @@ let%expect_test "5.1 successful steal - target has 2+ coins" =
        ((id 0) (player_io <opaque>) (coins 4) (hand (Both Captain Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -726,7 +766,8 @@ let%expect_test "5.4 captain blocks steal" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Duke Assassin Assassin Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Steal 1
     Player 1: Offer_challenge
@@ -739,7 +780,8 @@ let%expect_test "5.4 captain blocks steal" =
        ((id 0) (player_io <opaque>) (coins 2) (hand (Both Captain Assassin)))))
      (deck
       (Duke Duke Duke Assassin Assassin Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -762,7 +804,8 @@ let%expect_test "5.7 challenge steal - actor doesn't have captain" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Steal 1
     Player 1: Offer_challenge
@@ -775,7 +818,8 @@ let%expect_test "5.7 challenge steal - actor doesn't have captain" =
         (hand (One (hidden Assassin) (revealed Duke))))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -800,7 +844,8 @@ let%expect_test "5.8 challenge captain block - has captain" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Duke)))))
      (deck
       (Duke Duke Assassin Assassin Captain Ambassador Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Steal 1
     Player 1: Offer_challenge
@@ -815,7 +860,8 @@ let%expect_test "5.8 challenge captain block - has captain" =
         (hand (One (hidden Assassin) (revealed Captain))))))
      (deck
       (Contessa Ambassador Duke Contessa Captain Duke Ambassador Contessa
-       Ambassador Captain Assassin)))
+       Ambassador Captain Assassin))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -840,7 +886,8 @@ let%expect_test "5.9 challenge ambassador block - doesn't have ambassador" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Duke Contessa)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador
-       Ambassador Contessa Contessa)))
+       Ambassador Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Steal 1
     Player 1: Offer_challenge
@@ -855,7 +902,8 @@ let%expect_test "5.9 challenge ambassador block - doesn't have ambassador" =
        ((id 0) (player_io <opaque>) (coins 4) (hand (Both Captain Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador
-       Ambassador Contessa Contessa)))
+       Ambassador Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -887,7 +935,8 @@ let%expect_test "7.1 basic coup" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Assassin Assassin Assassin Captain Captain Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -905,7 +954,8 @@ let%expect_test "7.1 basic coup" =
        ((id 0) (player_io <opaque>) (coins 1) (hand (Both Duke Duke)))))
      (deck
       (Duke Assassin Assassin Assassin Captain Captain Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -936,7 +986,8 @@ let%expect_test "7.2 coup eliminates last influence" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Assassin Assassin Assassin Captain Captain Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -953,7 +1004,10 @@ let%expect_test "7.2 coup eliminates last influence" =
     ((players (((id 0) (player_io <opaque>) (coins 1) (hand (Both Duke Duke)))))
      (deck
       (Duke Assassin Assassin Assassin Captain Captain Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players
+      (((id 1) (player_io <opaque>) (coins 4)
+        (hand (One (hidden Ambassador) (revealed Captain)))))))
     |}];
   return ()
 
@@ -981,7 +1035,8 @@ let%expect_test "8.1 multiple challenges in one game" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -994,7 +1049,10 @@ let%expect_test "8.1 multiple challenges in one game" =
       (((id 0) (player_io <opaque>) (coins 5) (hand (Both Assassin Assassin)))))
      (deck
       (Contessa Captain Duke Contessa Duke Duke Ambassador Contessa Ambassador
-       Captain Assassin)))
+       Captain Assassin))
+     (eliminated_players
+      (((id 1) (player_io <opaque>) (coins 2)
+        (hand (One (hidden Ambassador) (revealed Captain)))))))
     |}];
   return ()
 
@@ -1023,7 +1081,8 @@ let%expect_test "8.2 bluff chain - multiple false claims" =
         (hand (Both Ambassador Ambassador)))))
      (deck
       (Duke Duke Duke Assassin Assassin Assassin Captain Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -1041,7 +1100,8 @@ let%expect_test "8.2 bluff chain - multiple false claims" =
         (hand (Both Ambassador Ambassador)))))
      (deck
       (Duke Duke Duke Assassin Assassin Assassin Captain Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -1081,7 +1141,8 @@ let%expect_test "9.2 income only game" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Income
@@ -1109,7 +1170,8 @@ let%expect_test "9.2 income only game" =
        ((id 0) (player_io <opaque>) (coins 3) (hand (Both Duke Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
-       Contessa Contessa)))
+       Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -1144,7 +1206,8 @@ let%expect_test "9.3 immediate forced coup cascade" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Duke Captain)))))
      (deck
       (Assassin Assassin Assassin Captain Captain Ambassador Ambassador
-       Ambassador Contessa Contessa Contessa)))
+       Ambassador Contessa Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -1171,7 +1234,8 @@ let%expect_test "9.3 immediate forced coup cascade" =
         (hand (One (hidden Captain) (revealed Duke))))))
      (deck
       (Assassin Assassin Assassin Captain Captain Ambassador Ambassador
-       Ambassador Contessa Contessa Contessa)))
+       Ambassador Contessa Contessa Contessa))
+     (eliminated_players ()))
     |}];
   return ()
 
@@ -1210,7 +1274,8 @@ let%expect_test "12.1 clean victory through coups" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
      (deck
       (Duke Assassin Assassin Assassin Captain Captain Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -1233,7 +1298,10 @@ let%expect_test "12.1 clean victory through coups" =
     ((players (((id 0) (player_io <opaque>) (coins 0) (hand (Both Duke Duke)))))
      (deck
       (Duke Assassin Assassin Assassin Captain Captain Ambassador Ambassador
-       Contessa Contessa Contessa)))
+       Contessa Contessa Contessa))
+     (eliminated_players
+      (((id 1) (player_io <opaque>) (coins 7)
+        (hand (One (hidden Ambassador) (revealed Captain)))))))
     |}];
   return ()
 
@@ -1261,7 +1329,8 @@ let%expect_test "12.2 victory through successful challenges" =
        ((id 1) (player_io <opaque>) (coins 2) (hand (Both Contessa Contessa)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Captain Ambassador Ambassador
-       Ambassador Contessa)))
+       Ambassador Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Income
     Player 1: Choose_action: Tax
@@ -1276,7 +1345,10 @@ let%expect_test "12.2 victory through successful challenges" =
       (((id 0) (player_io <opaque>) (coins 4) (hand (Both Duke Assassin)))))
      (deck
       (Duke Duke Assassin Assassin Captain Captain Captain Ambassador Ambassador
-       Ambassador Contessa)))
+       Ambassador Contessa))
+     (eliminated_players
+      (((id 1) (player_io <opaque>) (coins 2)
+        (hand (One (hidden Contessa) (revealed Contessa)))))))
     |}];
   return ()
 
@@ -1305,7 +1377,8 @@ let%expect_test "notifications" =
        ((id 2) (player_io <opaque>) (coins 2) (hand (Both Assassin Captain)))))
      (deck
       (Duke Duke Assassin Captain Captain Ambassador Ambassador Ambassador
-       Contessa)))
+       Contessa))
+     (eliminated_players ()))
 
     Player 0: Choose_action: Tax
     Player 1: Offer_challenge
@@ -1327,6 +1400,7 @@ let%expect_test "notifications" =
        ((id 0) (player_io <opaque>) (coins 5) (hand (Both Duke Assassin)))))
      (deck
       (Duke Assassin Captain Ambassador Ambassador Ambassador Captain Duke
-       Contessa)))
+       Contessa))
+     (eliminated_players ()))
     |}];
   return ()

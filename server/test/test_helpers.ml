@@ -171,6 +171,7 @@ let run_test ?print_notifications ~starting_cards moves_list =
          Map.to_alist new_card_counts
          |> List.concat_map ~f:(fun (card, count) ->
                 List.init count ~f:(Fn.const card)));
+      eliminated_players = [];
     }
   in
   print_endline "Initial game state:";

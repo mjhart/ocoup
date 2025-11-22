@@ -19,6 +19,9 @@ module Game_state = struct
   type t = {
     players : Player.t list;  (** the first player in the list is active *)
     deck : Card.t list;
+    eliminated_players : Player.t list;
+        (** Eliminated players with most recently eliminated at head, earliest
+            at tail *)
   }
   [@@deriving sexp_of]
 
@@ -170,7 +173,7 @@ module Game_state = struct
       List.concat_map remaining_cards ~f:(fun (carrd_1, card_2) ->
           [ carrd_1; card_2 ])
     in
-    Ok { players; deck }
+    Ok { players; deck; eliminated_players = [] }
 
   let init player_io_creators =
     let player_io_creators' =
@@ -213,15 +216,27 @@ let lose_influence game_state target_player_id =
         in
         (new_game_state, revealed_card)
     | Hand.One { hidden; revealed = _ } -> (
+        let eliminated_player =
+          List.find_exn game_state.players ~f:(fun player ->
+              Player_id.equal player.id target_player_id)
+        in
         let remaining_players =
           List.filter game_state.players ~f:(fun player ->
               not (Player_id.equal player.id target_player_id))
         in
+        let updated_eliminated_players =
+          eliminated_player :: game_state.eliminated_players
+        in
+        let new_game_state =
+          {
+            game_state with
+            players = remaining_players;
+            eliminated_players = updated_eliminated_players;
+          }
+        in
         match List.length remaining_players with
-        | 1 -> game_over { game_state with players = remaining_players }
-        | _ ->
-            Deferred.Result.return
-              ({ game_state with players = remaining_players }, hidden))
+        | 1 -> game_over new_game_state
+        | _ -> Deferred.Result.return (new_game_state, hidden))
   in
   let%map.Deferred.Result () =
     Game_state.players new_game_state

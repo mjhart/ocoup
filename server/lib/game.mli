@@ -12,7 +12,14 @@ module Player : sig
 end
 
 module Game_state : sig
-  type t = { players : Player.t list; deck : Card.t list } [@@deriving sexp_of]
+  type t = {
+    players : Player.t list;
+    deck : Card.t list;
+    eliminated_players : Player.t list;
+        (** Eliminated players with most recently eliminated at head, earliest
+            at tail *)
+  }
+  [@@deriving sexp_of]
 
   val players : t -> Player.t list
   val to_visible_game_state : t -> Player_id.t -> Visible_game_state.t
