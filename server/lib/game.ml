@@ -552,7 +552,7 @@ let take_turn_result game_state =
         | true -> `Finished action
         | false -> (
             (* TODO this should tell client *)
-            print_endline "Invalid action";
+            Log.Global.info "Invalid action";
             match retries with
             (* this does not work in case of coup *)
             | 0 -> `Finished `Income
@@ -594,8 +594,6 @@ let take_turn_result game_state =
       exchange game_state >>| Result.return
 
 let take_turn game_state =
-  (* print_s [%sexp (game_state : Game_state.t)]; *)
-  (* print_endline (Game_state.to_string_pretty game_state); *)
   let _ = Game_state.to_string_pretty in
   match%bind take_turn_result game_state with
   | Ok game_state' -> return (`Repeat (Game_state.end_turn game_state'))

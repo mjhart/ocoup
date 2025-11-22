@@ -5,13 +5,12 @@ open Game
 (* TODOS:
    - Visible_game_state -> Game_state and Game_state -> Hidden_game_state
    - maybe replace Player_io module with a record
-   - Logging instead of all the print_s 
    - create_rounds should really make sure every player is in the odd sized game the same number of times
 *)
 
 let run_game ~game_state =
   let%map final_game_state = Game.run_game ~game_state in
-  print_s [%message "Game over" (final_game_state : Game_state.t)]
+  Log.Global.info_s [%message "Game over" (final_game_state : Game_state.t)]
 
 module Server = struct
   module State = struct
@@ -146,7 +145,8 @@ module Server = struct
             Hashtbl.set state.tournaments ~key:tournament_id
               ~data:{ tournament_data with started = true };
             (* Run the tournament *)
-            Log.Global.info_s [%message "Starting tournament" (tournament_id : string)];
+            Log.Global.info_s
+              [%message "Starting tournament" (tournament_id : string)];
             let%bind results = Tournament.start tournament_data.tournament in
             (* Calculate scores *)
             let scores = Tournament.score_results results in
@@ -169,7 +169,8 @@ module Server = struct
                              (List.mapi round ~f:(fun game_idx game_result ->
                                   match game_result with
                                   | Ok game_state ->
-                                      let Game.Game_state.{ players; eliminated_players; _ } =
+                                      let Game.Game_state.
+                                            { players; eliminated_players; _ } =
                                         game_state
                                       in
                                       `Assoc
@@ -179,24 +180,27 @@ module Server = struct
                                           ( "winners",
                                             `List
                                               (List.map players
-                                                 ~f:(fun Game.Player.{ id; _ } ->
+                                                 ~f:(fun
+                                                     Game.Player.{ id; _ } ->
                                                    `String
-                                                     (Types.Player_id.to_string id)))
-                                          );
+                                                     (Types.Player_id.to_string
+                                                        id))) );
                                           ( "eliminated",
                                             `List
                                               (List.rev_map eliminated_players
-                                                 ~f:(fun Game.Player.{ id; _ } ->
+                                                 ~f:(fun
+                                                     Game.Player.{ id; _ } ->
                                                    `String
-                                                     (Types.Player_id.to_string id)))
-                                          );
+                                                     (Types.Player_id.to_string
+                                                        id))) );
                                         ]
                                   | Error err ->
                                       `Assoc
                                         [
                                           ("game", `Int (game_idx + 1));
                                           ("status", `String "error");
-                                          ("error", `String (Error.to_string_hum err));
+                                          ( "error",
+                                            `String (Error.to_string_hum err) );
                                         ])) );
                        ]))
             in
@@ -242,12 +246,7 @@ module Server = struct
     let player_ws_handler =
       ws_handler (fun websocket ->
           let reader, writer = Websocket.pipes websocket in
-          let reader, debugging_fork =
-            Pipe.fork reader ~pushback_uses:`Both_consumers
-          in
-          don't_wait_for
-            (Pipe.iter_without_pushback debugging_fork ~f:(fun message ->
-                 print_endline message));
+
           let%bind game_state =
             Game_state.init
               [
@@ -270,8 +269,7 @@ module Server = struct
           with
           | Ok () -> return ()
           | Error e ->
-              print_endline "Error running game";
-              print_endline (Exn.to_string e);
+              Log.Global.error_s [%message "Error running game" (e : Exn.t)];
               return ())
     in
     let player_with_updates_ws_handler updates_writer =
@@ -307,8 +305,7 @@ module Server = struct
           with
           | Ok () -> return ()
           | Error e ->
-              print_endline "Error running game";
-              print_endline (Exn.to_string e);
+              Log.Global.error_s [%message "Error running game" (e : Exn.t)];
               return ())
     in
     let tournament_register_ws_handler ~(state : State.t) ~tournament_id =
@@ -393,7 +390,7 @@ module Server = struct
       Cohttp_async.Server.create_expert ~on_handler_error:`Ignore
         (* ~mode:(Ssl_config.conduit_mode ssl_config) *)
         (Tcp.Where_to_listen.of_port port) (fun ~body inet request ->
-          print_s [%message (request : Cohttp.Request.t)];
+          Log.Global.info_s [%message (request : Cohttp.Request.t)];
           match
             ( Cohttp.Request.meth request,
               Cohttp.Request.uri request |> Uri.path |> Filename.parts )

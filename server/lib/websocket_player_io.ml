@@ -332,7 +332,7 @@ let create ~player_id ~reader ~writer =
     (Pipe.iter t.from_client ~f:(fun message ->
          (match Ivar.peek t.expected_message_handler with
          | Some prior_message ->
-             print_s
+             Log.Global.info_s
                [%message
                  "Received unexpected message"
                    ~prior_message:(Yojson.Safe.to_string prior_message)
