@@ -73,3 +73,5 @@ let start (state : t) =
             Deferred.Or_error.try_with (fun () -> Game.run_game ~game_state)))
   in
   results
+
+let num_players (state : t) = List.length state.players

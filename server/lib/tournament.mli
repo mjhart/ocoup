@@ -12,3 +12,4 @@ val score_results :
 val create : max_players:int -> t
 val register : t -> Player_ios.t -> t Or_error.t
 val start : t -> Game.Game_state.t Or_error.t list list Deferred.t
+val num_players : t -> int

@@ -15,11 +15,15 @@ let run_game ~game_state =
 
 module Server = struct
   module State = struct
+    type tournament_data = { tournament : Tournament.t; started : bool }
+
     type t = {
       games : (string Pipe.Reader.t * string Pipe.Writer.t) String.Table.t;
+      tournaments : tournament_data String.Table.t;
     }
 
-    let create () = { games = String.Table.create () }
+    let create () =
+      { games = String.Table.create (); tournaments = String.Table.create () }
 
     let get_game_id =
       let next_game_id = Ref.create 0 in
@@ -32,6 +36,19 @@ module Server = struct
       let game_id = get_game_id () in
       Hashtbl.set state.games ~key:game_id ~data:(reader, writer);
       game_id
+
+    let get_tournament_id =
+      let next_tournament_id = Ref.create 0 in
+      fun () ->
+        let id = !next_tournament_id in
+        next_tournament_id := id + 1;
+        [%string "%{id#Int}"]
+
+    let add_tournament ~state ~tournament =
+      let tournament_id = get_tournament_id () in
+      Hashtbl.set state.tournaments ~key:tournament_id
+        ~data:{ tournament; started = false };
+      tournament_id
   end
 
   let not_found_response =
@@ -64,6 +81,99 @@ module Server = struct
         ( Cohttp.Response.make ~status:`OK ~headers (),
           Cohttp_async.Body.of_string body )
       |> return
+  end
+
+  module Create_tournament = struct
+    let handle ~state ~body _inet _request =
+      let%bind body_string = Cohttp_async.Body.to_string body in
+      let max_players =
+        match Yojson.Safe.from_string body_string with
+        | `Assoc fields -> (
+            match List.Assoc.find fields ~equal:String.equal "max_players" with
+            | Some (`Int n) -> n
+            | _ -> 12)
+        | _ -> 12
+      in
+      let tournament = Tournament.create ~max_players in
+      let tournament_id = State.add_tournament ~state ~tournament in
+      let response_body =
+        Yojson.Safe.to_string
+          (`Assoc
+             [
+               ("tournament_id", `String tournament_id);
+               ( "register_url",
+                 `String [%string "/tournaments/%{tournament_id}/register"] );
+             ])
+      in
+      let headers =
+        Cohttp.Header.of_list
+          [
+            ("Access-Control-Allow-Origin", "*");
+            ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+            ("Access-Control-Allow-Headers", "Content-Type");
+          ]
+      in
+      `Response
+        ( Cohttp.Response.make ~status:`OK ~headers (),
+          Cohttp_async.Body.of_string response_body )
+      |> return
+  end
+
+  module Start_tournament = struct
+    let handle ~(state : State.t) ~tournament_id ~body:_ _inet _request =
+      match Hashtbl.find state.tournaments tournament_id with
+      | None ->
+          let body =
+            Yojson.Safe.to_string
+              (`Assoc [ ("error", `String "Tournament not found") ])
+          in
+          `Response
+            ( Cohttp.Response.make ~status:`Not_found (),
+              Cohttp_async.Body.of_string body )
+          |> return
+      | Some tournament_data ->
+          if tournament_data.started then
+            let body =
+              Yojson.Safe.to_string
+                (`Assoc [ ("error", `String "Tournament already started") ])
+            in
+            `Response
+              ( Cohttp.Response.make ~status:`Bad_request (),
+                Cohttp_async.Body.of_string body )
+            |> return
+          else (
+            (* Mark tournament as started *)
+            Hashtbl.set state.tournaments ~key:tournament_id
+              ~data:{ tournament_data with started = true };
+            (* Run the tournament *)
+            Log.Global.info_s [%message "Starting tournament" (tournament_id : string)];
+            let%bind results = Tournament.start tournament_data.tournament in
+            (* Calculate scores *)
+            let scores = Tournament.score_results results in
+            (* Convert scores to JSON *)
+            let scores_json =
+              Map.to_alist scores
+              |> List.map ~f:(fun (player_id, score) ->
+                     (Types.Player_id.to_string player_id, `Int score))
+              |> fun assoc -> `Assoc assoc
+            in
+            let response_body =
+              Yojson.Safe.to_string
+                (`Assoc
+                   [ ("status", `String "completed"); ("scores", scores_json) ])
+            in
+            let headers =
+              Cohttp.Header.of_list
+                [
+                  ("Access-Control-Allow-Origin", "*");
+                  ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+                  ("Access-Control-Allow-Headers", "Content-Type");
+                ]
+            in
+            `Response
+              ( Cohttp.Response.make ~status:`OK ~headers (),
+                Cohttp_async.Body.of_string response_body )
+            |> return)
   end
 
   let run_server ~port =
@@ -154,6 +264,77 @@ module Server = struct
               print_endline (Exn.to_string e);
               return ())
     in
+    let tournament_register_ws_handler ~(state : State.t) ~tournament_id =
+      ws_handler (fun websocket ->
+          let reader, writer = Websocket.pipes websocket in
+          match Hashtbl.find state.tournaments tournament_id with
+          | None ->
+              let%bind () =
+                Pipe.write writer
+                  (Yojson.Safe.to_string
+                     (`Assoc [ ("error", `String "Tournament not found") ]))
+              in
+              Pipe.close writer;
+              return ()
+          | Some tournament_data ->
+              if tournament_data.started then (
+                let%bind () =
+                  Pipe.write writer
+                    (Yojson.Safe.to_string
+                       (`Assoc
+                          [ ("error", `String "Tournament already started") ]))
+                in
+                Pipe.close writer;
+                return ())
+              else
+                let next_player_id =
+                  Tournament.num_players tournament_data.tournament
+                in
+                let player_id = Types.Player_id.of_int next_player_id in
+                let player_io =
+                  Websocket_player_io.create ~player_id
+                    ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
+                    ~writer
+                in
+                let player_ios_t =
+                  Player_ios.create (module Websocket_player_io) player_io
+                  |> return
+                in
+                let%bind updated_tournament =
+                  let%bind player_ios = player_ios_t in
+                  match
+                    Tournament.register tournament_data.tournament player_ios
+                  with
+                  | Ok t -> return t
+                  | Error e ->
+                      let%bind () =
+                        Pipe.write writer
+                          (Yojson.Safe.to_string
+                             (`Assoc
+                                [ ("error", `String (Error.to_string_hum e)) ]))
+                      in
+                      Pipe.close writer;
+                      Error.raise e
+                in
+                Hashtbl.set state.tournaments ~key:tournament_id
+                  ~data:{ tournament_data with tournament = updated_tournament };
+                let%bind () =
+                  Pipe.write writer
+                    (Yojson.Safe.to_string
+                       (`Assoc
+                          [
+                            ("status", `String "registered");
+                            ("player_id", `Int next_player_id);
+                          ]))
+                in
+                Log.Global.info_s
+                  [%message
+                    "Registered player for tournament"
+                      (tournament_id : string)
+                      (player_id : Types.Player_id.t)];
+                (* Keep the websocket alive by waiting for it to close *)
+                Pipe.closed writer)
+    in
     let with_state ~(state : State.t) ~game_id f =
       match Hashtbl.find state.games game_id with
       | Some (reader, writer) -> f ~reader ~writer
@@ -185,6 +366,26 @@ module Server = struct
               |> return
           | `POST, [ "/"; "games" ] ->
               Create_game.handle ~state ~body inet request
+          | `OPTIONS, [ "/"; "tournaments" ] ->
+              let headers =
+                Cohttp.Header.of_list
+                  [
+                    ("Access-Control-Allow-Origin", "*");
+                    ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+                    ("Access-Control-Allow-Headers", "Content-Type");
+                  ]
+              in
+              `Response
+                ( Cohttp.Response.make ~status:`OK ~headers (),
+                  Cohttp_async.Body.empty )
+              |> return
+          | `POST, [ "/"; "tournaments" ] ->
+              Create_tournament.handle ~state ~body inet request
+          | `GET, [ "/"; "tournaments"; tournament_id; "register" ] ->
+              tournament_register_ws_handler ~state ~tournament_id ~body inet
+                request
+          | `POST, [ "/"; "tournaments"; tournament_id; "start" ] ->
+              Start_tournament.handle ~state ~tournament_id ~body inet request
           | `GET, [ "/"; "games"; game_id; "updates" ] ->
               with_state ~state ~game_id (fun ~reader ~writer:_ ->
                   updates_ws_handler ~updates_reader:reader ~body inet request)
