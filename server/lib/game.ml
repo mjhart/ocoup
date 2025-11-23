@@ -98,8 +98,14 @@ module Game_state = struct
       | true -> true
       | false -> ( match action with `Coup _ -> true | _ -> false)
     in
-    has_enough_coins && is_valid_target && not_targeting_self
-    && coup_if_required
+    match coup_if_required with
+    | false ->
+        let target = List.nth_exn t.players 1 |> Player.id in
+        `No_and_do_by_default (`Coup target)
+    | true -> (
+        match has_enough_coins && is_valid_target && not_targeting_self with
+        | true -> `Yes
+        | false -> `No_and_do_by_default `Income)
 
   let has_card t id card =
     let player = get_player_exn t id in
@@ -549,13 +555,12 @@ let take_turn_result game_state =
               (Game_state.to_visible_game_state game_state active_player.id)
         in
         match Game_state.is_valid_action game_state active_player.id action with
-        | true -> `Finished action
-        | false -> (
+        | `Yes -> `Finished action
+        | `No_and_do_by_default default_action -> (
             (* TODO this should tell client *)
             Log.Global.info "Invalid action";
             match retries with
-            (* this does not work in case of coup *)
-            | 0 -> `Finished `Income
+            | 0 -> `Finished default_action
             | _ -> `Repeat (retries - 1)))
     >>| Result.return
   in

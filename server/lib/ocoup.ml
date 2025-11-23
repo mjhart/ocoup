@@ -424,7 +424,7 @@ module Server = struct
     in
 
     let%bind server =
-      let state = State.create () in  
+      let state = State.create () in
       let on_handler_error =
         `Call
           (fun _address exn ->
