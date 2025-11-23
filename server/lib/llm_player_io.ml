@@ -18,23 +18,25 @@ let role_to_string = function
 type t = {
   events : (role * string) Queue.t;
   player_id : Player_id.t;
-  writer : Writer.t;
+  log : Log.t;
   model : string;
 }
 
 let create player_id ~model =
   let events = Queue.create () in
   Queue.enqueue events (Developer, Rules.rules);
-
-  let%map writer =
-    Writer.open_file [%string "player_%{player_id#Player_id}.log"]
+  let log =
+    Log.create ~level:`Info ~on_error:`Raise
+      ~output:
+        [
+          Log.Output.file `Sexp
+            ~filename:[%string "player_%{player_id#Player_id}.log"];
+        ]
+      ()
   in
-  { events; player_id; writer; model }
+  return { events; player_id; log; model }
 
-let print_endline t message =
-  ignore t.player_id;
-  Writer.write_line t.writer message;
-  ()
+let log_string t message = Log.string t.log message
 
 let headers =
   Lazy.from_fun (fun () ->
@@ -48,10 +50,9 @@ let headers =
 let send_request t prompt =
   let open Cohttp_async in
   Queue.enqueue t.events (User, prompt);
-  Queue.to_list t.events |> List.tl_exn
-  |> List.iter ~f:(fun (role, content) ->
-         print_endline t
-           [%string "Role: %{role_to_string role} Content: %{content}"]);
+  ( Queue.to_list t.events |> List.last_exn |> fun (role, content) ->
+    Log.string t.log
+      [%string "Role: %{role_to_string role} Content: %{content}"] );
   let messages =
     Queue.to_list t.events
     |> List.map ~f:(fun (role, content) ->
@@ -78,7 +79,7 @@ let send_request t prompt =
       ~body:post_body
   in
   let%map body = Body.to_string body in
-  print_endline t body;
+  log_string t body;
   let json = Yojson.Basic.from_string body in
   let content_string =
     Yojson.Basic.Util.member "choices" json
@@ -147,12 +148,19 @@ let choose_action t ~visible_game_state =
       `Steal (Player_id.of_int target_player_id)
   | `String "Exchange", `Null -> `Exchange
   | _ ->
-      print_endline t "Invalid action";
+      log_string t "Invalid action";
       `Income
+
+let visible_game_state_prompt visible_game_state =
+  String.concat_lines
+    [
+      "Game state, after the active player has paid for their action:";
+      Visible_game_state.to_string_pretty visible_game_state;
+    ]
 
 let choose_assasination_response t ~visible_game_state ~asassinating_player_id =
   let visible_game_state_string =
-    Visible_game_state.to_string_pretty visible_game_state
+    visible_game_state_prompt visible_game_state
   in
   let prompt =
     [%string
@@ -168,7 +176,7 @@ let choose_assasination_response t ~visible_game_state ~asassinating_player_id =
   | `String "Allow" -> `Allow
   | `String "Block" -> `Block
   | _ ->
-      print_endline t "Invalid response";
+      log_string t "Invalid response";
       `Allow
 
 let choose_foreign_aid_response t ~visible_game_state () ~cancelled_reason:_ =
@@ -188,7 +196,7 @@ let choose_foreign_aid_response t ~visible_game_state () ~cancelled_reason:_ =
   | `String "Allow" -> `Allow
   | `String "Block" -> `Block
   | _ ->
-      print_endline t "Invalid response";
+      log_string t "Invalid response";
       `Allow
 
 let choose_steal_response t ~visible_game_state ~stealing_player_id =
@@ -213,7 +221,7 @@ let choose_steal_response t ~visible_game_state ~stealing_player_id =
   | `String "Block", `String "Ambassador" -> `Block `Ambassador
   | `String "Block", `String "Captain" -> `Block `Captain
   | _ ->
-      print_endline t "Invalid response";
+      log_string t "Invalid response";
       `Allow
 
 let choose_cards_to_return t ~visible_game_state card_1 card_2 hand =
@@ -247,7 +255,7 @@ let choose_cards_to_return t ~visible_game_state card_1 card_2 hand =
   | [ `Int index_1; `Int index_2 ] ->
       (List.nth_exn cards index_1, List.nth_exn cards index_2)
   | _ ->
-      print_endline t "Invalid response";
+      log_string t "Invalid response";
       (card_1, card_2)
 
 let reveal_card t ~visible_game_state ~card_1 ~card_2 =
@@ -280,7 +288,7 @@ let reveal_card t ~visible_game_state ~card_1 ~card_2 =
   | Some (0, _) -> `Card_1
   | Some (1, _) -> `Card_2
   | _ ->
-      print_endline t "Invalid response";
+      log_string t "Invalid response";
       `Card_1
 
 let offer_challenge t ~visible_game_state acting_player_id challengable
@@ -302,7 +310,7 @@ let offer_challenge t ~visible_game_state acting_player_id challengable
   | `String "No_challenge" -> `No_challenge
   | `String "Challenge" -> `Challenge
   | _ ->
-      print_endline t "Invalid response";
+      log_string t "Invalid response";
       `No_challenge
 
 let notify_of_action_choice t player_id action =

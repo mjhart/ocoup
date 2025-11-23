@@ -548,7 +548,7 @@ let exchange game_state =
 let take_turn_result game_state =
   let active_player = Game_state.get_active_player game_state in
   let%bind.Deferred.Result action =
-    Deferred.repeat_until_finished 2 (fun retries ->
+    Deferred.repeat_until_finished 2 (fun retries_remaining ->
         let%map action =
           Player_ios.choose_action active_player.player_io
             ~visible_game_state:
@@ -562,10 +562,11 @@ let take_turn_result game_state =
               [%message
                 "Invalid action"
                   ~active_player:(Player.id active_player : Player_id.t)
-                  (action : Action.t)];
-            match retries with
+                  (action : Action.t)
+                  (retries_remaining : int)];
+            match retries_remaining with
             | 0 -> `Finished default_action
-            | _ -> `Repeat (retries - 1)))
+            | _ -> `Repeat (retries_remaining - 1)))
     >>| Result.return
   in
   match (action : Action.t) with

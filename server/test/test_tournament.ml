@@ -3,6 +3,7 @@ open Async
 open Ocoup.For_testing.Tournament
 
 let%expect_test "test create rounds" =
+  Log.Global.set_output [];
   let players = List.init 11 ~f:Fn.id in
   let rounds = create_rounds players in
   List.iteri rounds ~f:(fun i round ->
@@ -24,6 +25,7 @@ let%expect_test "test create rounds" =
   return ()
 
 let%expect_test "tourament" =
+  Log.Global.set_output [];
   let tourament = create ~max_players:7 in
   let tourament_with_players =
     List.fold (List.range 0 7) ~init:tourament ~f:(fun tournament_acc _i ->
