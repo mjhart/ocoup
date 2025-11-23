@@ -2,7 +2,7 @@ open! Core
 open! Async
 open Types
 
-type role = Developer | Assistant | User
+type role = Developer | Assistant | User [@@deriving sexp_of]
 
 let gpt_4o = "gpt-4o"
 let gpt_4o_mini = "gpt-4o-mini"
@@ -24,7 +24,7 @@ type t = {
 
 let create player_id ~model =
   let events = Queue.create () in
-  Queue.enqueue events (Developer, Rules.rules);
+
   let log =
     Log.create ~level:`Info ~on_error:`Raise
       ~output:
@@ -38,6 +38,10 @@ let create player_id ~model =
 
 let log_string t message = Log.string t.log message
 
+let enqueue_and_log t role prompt =
+  Log.info_s t.log [%message (role : role) (prompt : string)];
+  Queue.enqueue t.events (role, prompt)
+
 let headers =
   Lazy.from_fun (fun () ->
       Cohttp.Header.of_list
@@ -49,10 +53,7 @@ let headers =
 
 let send_request t prompt =
   let open Cohttp_async in
-  Queue.enqueue t.events (User, prompt);
-  ( Queue.to_list t.events |> List.last_exn |> fun (role, content) ->
-    Log.string t.log
-      [%string "Role: %{role_to_string role} Content: %{content}"] );
+  enqueue_and_log t User prompt;
   let messages =
     Queue.to_list t.events
     |> List.map ~f:(fun (role, content) ->
@@ -90,7 +91,7 @@ let send_request t prompt =
     | `String content -> content
     | _ -> failwith "Invalid content"
   in
-  Queue.enqueue t.events (Assistant, content_string);
+  enqueue_and_log t Assistant content_string;
   Yojson.Basic.from_string content_string
 
 (* TODO: send initial data here *)
@@ -108,12 +109,14 @@ let notify_of_game_start t ~visible_game_state =
                [%string "Player id: %{player_id#Player_id}"])
         |> String.concat ~sep:", "
       in
-      Queue.enqueue t.events
-        ( Developer,
-          [%string
-            "The game is starting. You are player %{t.player_id#Player_id}. \
-             Your starting cards are %{card_1#Card} and %{card_2#Card}. \
-             Players %{other_players_string} are your opponents."] )
+      (* don't need to log this one *)
+      Queue.clear t.events;
+      Queue.enqueue t.events (Developer, Rules.rules);
+      enqueue_and_log t Developer
+        [%string
+          "The game is starting. You are player %{t.player_id#Player_id}. Your \
+           starting cards are %{card_1#Card} and %{card_2#Card}. Players \
+           %{other_players_string} are your opponents."]
   | _ -> failwith "Expected player to have two cards at game start");
   return ()
 
@@ -314,20 +317,17 @@ let offer_challenge t ~visible_game_state acting_player_id challengable
       `No_challenge
 
 let notify_of_action_choice t player_id action =
-  Queue.enqueue t.events
-    ( Developer,
-      [%string "Player %{player_id#Player_id} chose action %{action#Action}"] );
+  enqueue_and_log t Developer
+    [%string "Player %{player_id#Player_id} chose action %{action#Action}"];
   return ()
 
 let notify_of_lost_influence t player_id card =
-  Queue.enqueue t.events
-    ( Developer,
-      [%string "Player %{player_id#Player_id} lost influence card %{card#Card}"]
-    );
+  enqueue_and_log t Developer
+    [%string "Player %{player_id#Player_id} lost influence card %{card#Card}"];
   return ()
 
 let notify_of_new_card t card =
-  Queue.enqueue t.events (Developer, [%string "Received new card %{card#Card}"]);
+  enqueue_and_log t Developer [%string "Received new card %{card#Card}"];
   return ()
 
 let notify_of_challenge t ~challenging_player_id ~has_required_card =
@@ -336,9 +336,7 @@ let notify_of_challenge t ~challenging_player_id ~has_required_card =
     | true -> "unsuccessfully"
     | false -> "successfully"
   in
-  Queue.enqueue t.events
-    ( Developer,
-      [%string
-        "Player %{challenging_player_id#Player_id} challenged you %{success}"]
-    );
+  enqueue_and_log t Developer
+    [%string
+      "Player %{challenging_player_id#Player_id} challenged you %{success}"];
   return ()
