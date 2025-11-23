@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OCaml implementation of the board game **Coup** with support for CLI, LLM-based players, and WebSocket-based multiplayer. The game includes a tournament system for running multiple rounds with various player configurations.
 
-## Build & Development Commands
+## Server Build & Development Commands
+
+All dune commands must be run from ./server _or_ with --root=server
 
 ### Building
 ```bash
@@ -17,9 +19,6 @@ dune build
 ```bash
 # Run all tests
 dune runtest
-
-# Run tests in watch mode
-dune runtest --watch
 
 # Run a specific test file
 dune runtest test/test_ocoup.ml

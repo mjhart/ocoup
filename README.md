@@ -23,6 +23,7 @@ A multiplayer implementation of the card game Coup, with an OCaml server and Rea
 
 ```bash
 # Navigate to the server directory
+# Alternatively run all dune commands with --root=server
 cd server
 
 # Install dependencies
