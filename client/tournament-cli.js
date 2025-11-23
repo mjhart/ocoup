@@ -1,25 +1,108 @@
 #!/usr/bin/env node
 
+/**
+ * OCoup Tournament CLI
+ *
+ * Usage:
+ *   tournament-cli.js [num_human_players] [server_url] [bot_player_types...]
+ *
+ * Arguments:
+ *   num_human_players  - Number of human players to register (default: 4)
+ *   server_url         - Server URL (default: http://localhost:9000)
+ *   bot_player_types   - Bot player types to pre-register (optional)
+ *
+ * Supported bot types:
+ *   - gpt-4o           - OpenAI GPT-4o
+ *   - o3-mini          - OpenAI O3-mini
+ *   - gemini-2-5       - Google Gemini 2.5
+ *   - cli              - Command-line player (not recommended for tournaments)
+ *
+ * Examples:
+ *   # 4 human players
+ *   ./tournament-cli.js 4
+ *
+ *   # 2 human + 2 bot players
+ *   ./tournament-cli.js 2 http://localhost:9000 gpt-4o o3-mini
+ *
+ *   # 3 bot players only
+ *   ./tournament-cli.js 0 http://localhost:9000 gpt-4o o3-mini gemini-2-5
+ *
+ *   # Custom server with mixed players
+ *   ./tournament-cli.js 1 https://example.com gpt-4o gpt-4o o3-mini
+ */
+
 import WebSocket from 'ws';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-const numPlayers = parseInt(args[0]) || 4;
+
+// Handle help flag
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(`
+🎮 OCoup Tournament CLI
+
+Usage:
+  tournament-cli.js [num_human_players] [server_url] [bot_player_types...]
+
+Arguments:
+  num_human_players  - Number of human players to register (default: 4)
+  server_url         - Server URL (default: http://localhost:9000)
+  bot_player_types   - Bot player types to pre-register (optional)
+
+Supported bot types:
+  - gpt-4o           - OpenAI GPT-4o
+  - o3-mini          - OpenAI O3-mini
+  - gemini-2-5       - Google Gemini 2.5
+  - cli              - Command-line player (not recommended for tournaments)
+
+Examples:
+  # 4 human players
+  ./tournament-cli.js 4
+
+  # 2 human + 2 bot players
+  ./tournament-cli.js 2 http://localhost:9000 gpt-4o o3-mini
+
+  # 3 bot players only
+  ./tournament-cli.js 0 http://localhost:9000 gpt-4o o3-mini gemini-2-5
+
+  # Custom server with mixed players
+  ./tournament-cli.js 1 https://example.com gpt-4o gpt-4o o3-mini
+`);
+  process.exit(0);
+}
+const numHumanPlayers = parseInt(args[0]) || 4;
 const serverUrl = args[1] || 'http://localhost:9000';
+const botPlayers = args.slice(2); // Any additional args are bot player types
 const wsProtocol = serverUrl.startsWith('https') ? 'wss' : 'ws';
 const wsUrl = serverUrl.replace(/^https?/, wsProtocol);
 
+const totalPlayers = numHumanPlayers + botPlayers.length;
+
 console.log(`\n🎮 OCoup Tournament Manager\n`);
 console.log(`Server: ${serverUrl}`);
-console.log(`Players: ${numPlayers}\n`);
+console.log(`Human Players: ${numHumanPlayers}`);
+if (botPlayers.length > 0) {
+  console.log(`Bot Players: ${botPlayers.length} (${botPlayers.join(', ')})`);
+}
+console.log(`Total Players: ${totalPlayers}\n`);
 
 // Step 1: Create tournament
 async function createTournament() {
   console.log('📝 Creating tournament...');
+
+  const requestBody = {
+    max_players: totalPlayers
+  };
+
+  // Add bot players if specified
+  if (botPlayers.length > 0) {
+    requestBody.bot_players = botPlayers;
+  }
+
   const response = await fetch(`${serverUrl}/tournaments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ max_players: numPlayers })
+    body: JSON.stringify(requestBody)
   });
 
   if (!response.ok) {
@@ -27,7 +110,11 @@ async function createTournament() {
   }
 
   const data = await response.json();
-  console.log(`✅ Tournament created: ${data.tournament_id}\n`);
+  console.log(`✅ Tournament created: ${data.tournament_id}`);
+  if (data.num_bot_players > 0) {
+    console.log(`   ${data.num_bot_players} bot player(s) pre-registered`);
+  }
+  console.log();
   return data;
 }
 
@@ -144,10 +231,15 @@ function registerPlayer(tournamentId, playerNum) {
 
 // Step 3: Register all players
 async function registerAllPlayers(tournamentId) {
-  console.log(`👥 Registering ${numPlayers} players...\n`);
+  if (numHumanPlayers === 0) {
+    console.log('ℹ️  No human players to register (bots only)\n');
+    return [];
+  }
+
+  console.log(`👥 Registering ${numHumanPlayers} human player(s)...\n`);
 
   const players = [];
-  for (let i = 0; i < numPlayers; i++) {
+  for (let i = 0; i < numHumanPlayers; i++) {
     try {
       const player = await registerPlayer(tournamentId, i);
       players.push(player);
@@ -161,7 +253,7 @@ async function registerAllPlayers(tournamentId) {
     }
   }
 
-  console.log(`\n✅ All players registered!\n`);
+  console.log(`\n✅ All human players registered!\n`);
   return players;
 }
 

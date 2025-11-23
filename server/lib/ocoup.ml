@@ -13,6 +13,15 @@ let run_game ~game_state =
   let%map final_game_state = Game.run_game ~game_state in
   Log.Global.info_s [%message "Game over" (final_game_state : Game_state.t)]
 
+let player_io_of_string = function
+  | "cli" -> Player_ios.cli
+  | "gpt-4o" -> Player_ios.llm ~model:Llm_player_io.gpt_4o
+  | "gpt-4o-mini" -> Player_ios.llm ~model:Llm_player_io.gpt_4o_mini
+  | "o3-mini" -> Player_ios.llm ~model:Llm_player_io.o3_mini
+  | "gemini-2-5" ->
+      Player_ios.gemini ~model:Gemini_player_io.gemini_2_5_pro_exp_03_25
+  | unrecognized -> failwith (sprintf "Unrecognized player io: %s" unrecognized)
+
 module Server = struct
   module State = struct
     type tournament_data = { tournament : Tournament.t; started : bool }
@@ -86,15 +95,47 @@ module Server = struct
   module Create_tournament = struct
     let handle ~state ~body _inet _request =
       let%bind body_string = Cohttp_async.Body.to_string body in
-      let max_players =
-        match Yojson.Safe.from_string body_string with
-        | `Assoc fields -> (
-            match List.Assoc.find fields ~equal:String.equal "max_players" with
-            | Some (`Int n) -> n
-            | _ -> 12)
-        | _ -> 12
+      let json = Yojson.Safe.from_string body_string in
+      let max_players, bot_players =
+        match json with
+        | `Assoc fields ->
+            let max_players =
+              match
+                List.Assoc.find fields ~equal:String.equal "max_players"
+              with
+              | Some (`Int n) -> n
+              | _ -> 12
+            in
+            let bot_players =
+              match
+                List.Assoc.find fields ~equal:String.equal "bot_players"
+              with
+              | Some (`List bots) ->
+                  List.filter_map bots ~f:(function
+                    | `String s -> Some s
+                    | _ -> None)
+              | _ -> []
+            in
+            (max_players, bot_players)
+        | _ -> (12, [])
       in
       let tournament = Tournament.create ~max_players in
+      (* Register bot players *)
+      let%bind tournament =
+        Deferred.Or_error.List.fold bot_players ~init:tournament
+          ~f:(fun tournament bot_player_string ->
+            let next_player_id = Tournament.num_players tournament in
+            let player_id = Types.Player_id.of_int next_player_id in
+            Deferred.Or_error.bind
+              (Deferred.Or_error.try_with (fun () ->
+                   let player_io_factory =
+                     player_io_of_string bot_player_string
+                   in
+                   player_io_factory player_id))
+              ~f:(fun player_ios ->
+                Tournament.register tournament player_ios |> Deferred.return))
+        >>| Or_error.ok_exn
+      in
       let tournament_id = State.add_tournament ~state ~tournament in
       let response_body =
         Yojson.Safe.to_string
@@ -103,6 +144,7 @@ module Server = struct
                ("tournament_id", `String tournament_id);
                ( "register_url",
                  `String [%string "/tournaments/%{tournament_id}/register"] );
+               ("num_bot_players", `Int (List.length bot_players));
              ])
       in
       let headers =
@@ -382,8 +424,13 @@ module Server = struct
     in
 
     let%bind server =
-      let state = State.create () in
-      Cohttp_async.Server.create_expert ~on_handler_error:`Ignore
+      let state = State.create () in  
+      let on_handler_error =
+        `Call
+          (fun _address exn ->
+            Log.Global.error_s [%message "Error handling request" (exn : exn)])
+      in
+      Cohttp_async.Server.create_expert ~on_handler_error
         (* ~mode:(Ssl_config.conduit_mode ssl_config) *)
         (Tcp.Where_to_listen.of_port port) (fun ~body inet request ->
           Log.Global.info_s [%message (request : Cohttp.Request.t)];
@@ -440,14 +487,6 @@ module Server = struct
 end
 
 let run_server ~port = Server.run_server ~port
-
-let player_io_of_string = function
-  | "cli" -> Player_ios.cli
-  | "gpt-4o" -> Player_ios.llm ~model:Llm_player_io.gpt_4o
-  | "o3-mini" -> Player_ios.llm ~model:Llm_player_io.o3_mini
-  | "gemini-2-5" ->
-      Player_ios.gemini ~model:Gemini_player_io.gemini_2_5_pro_exp_03_25
-  | unrecognized -> failwith (sprintf "Unrecognized player io: %s" unrecognized)
 
 let run_game player_ios =
   let player_ios = List.map player_ios ~f:player_io_of_string in
