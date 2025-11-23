@@ -4,7 +4,7 @@ open Types
 
 type t = { players : (Player_id.t * Player_ios.t) list; max_players : int }
 
-let num_rounds = 5
+let num_rounds = 3
 
 let create_rounds players =
   let num_players = List.length players in
@@ -60,17 +60,28 @@ let start (state : t) =
   let rounds = create_rounds players in
   let%map results =
     (* Run rounds sequentially *)
-    Deferred.List.map ~how:`Sequential rounds ~f:(fun round ->
+    Deferred.List.mapi ~how:`Sequential rounds ~f:(fun round_number round ->
+        Log.Global.info_s [%message "Starting round" (round_number : int)];
         (* Run each game in round in parallel *)
-        Deferred.List.map ~how:`Parallel round ~f:(fun players_in_game ->
-            let%bind game_state =
-              Game.Game_state.init'
-                (List.map players_in_game ~f:(fun (player_id, player_io) ->
-                     (player_id, fun () -> return player_io)))
-              >>| Or_error.ok_exn
-              (* This is fine - only fails if given too few players *)
+        Deferred.List.mapi ~how:`Parallel round
+          ~f:(fun game_number players_in_game ->
+            let%map.Deferred.Or_error final_game_state =
+              let%bind game_state =
+                Game.Game_state.init'
+                  (List.map players_in_game ~f:(fun (player_id, player_io) ->
+                       (player_id, fun () -> return player_io)))
+                >>| Or_error.ok_exn
+                (* This is fine - only fails if given too few players *)
+              in
+              Deferred.Or_error.try_with (fun () -> Game.run_game ~game_state)
             in
-            Deferred.Or_error.try_with (fun () -> Game.run_game ~game_state)))
+            Log.Global.info_s
+              [%message
+                "Completed game"
+                  (round_number : int)
+                  (game_number : int)
+                  (final_game_state : Game.Game_state.t)];
+            final_game_state))
   in
   results
 

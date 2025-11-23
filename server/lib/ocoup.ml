@@ -19,7 +19,10 @@ let player_io_of_string = function
   | "gpt-4o-mini" -> Player_ios.llm ~model:Llm_player_io.gpt_4o_mini
   | "o3-mini" -> Player_ios.llm ~model:Llm_player_io.o3_mini
   | "gemini-2-5" ->
-      Player_ios.gemini ~model:Gemini_player_io.gemini_2_5_pro_exp_03_25
+      fun player_id ->
+        Player_ios.gemini player_id
+          ~model:Gemini_player_io.gemini_2_5_pro_exp_03_25
+        |> return
   | unrecognized -> failwith (sprintf "Unrecognized player io: %s" unrecognized)
 
 module Server = struct

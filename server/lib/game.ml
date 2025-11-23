@@ -558,7 +558,11 @@ let take_turn_result game_state =
         | `Yes -> `Finished action
         | `No_and_do_by_default default_action -> (
             (* TODO this should tell client *)
-            Log.Global.info "Invalid action";
+            Log.Global.info_s
+              [%message
+                "Invalid action"
+                  ~active_player:(Player.id active_player : Player_id.t)
+                  (action : Action.t)];
             match retries with
             | 0 -> `Finished default_action
             | _ -> `Repeat (retries - 1)))

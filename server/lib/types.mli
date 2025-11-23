@@ -51,6 +51,7 @@ end
 (* Actions a player may choose. Some actions have a target (represented by a player id). *)
 module Action : sig
   type t = [ challengable_actions | non_challengable_actions ]
+  [@@deriving sexp_of]
 
   val to_string : t -> string
 end

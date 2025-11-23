@@ -27,7 +27,7 @@ let create player_id ~model =
   Queue.enqueue events (Developer, Rules.rules);
 
   let%map writer =
-    Writer.open_file [%string "player_%{player_id#Player_id}.txt"]
+    Writer.open_file [%string "player_%{player_id#Player_id}.log"]
   in
   { events; player_id; writer; model }
 

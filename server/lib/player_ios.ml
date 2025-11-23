@@ -18,7 +18,7 @@ let gemini id ~model =
   let (module M) =
     (module Gemini_player_io : Player_io_S with type t = Gemini_player_io.t)
   in
-  let%map implementation = Gemini_player_io.create id ~model in
+  let implementation = Gemini_player_io.create id ~model in
   Packed ((module M), implementation)
 
 let cli id =

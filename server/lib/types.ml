@@ -50,17 +50,21 @@ end = struct
 end
 
 type non_challengable_actions = [ `Income | `Foreign_aid | `Coup of Player_id.t ]
+[@@deriving sexp_of]
 
 type challengable_actions =
   [ `Tax | `Assassinate of Player_id.t | `Steal of Player_id.t | `Exchange ]
+[@@deriving sexp_of]
 
 type challengable_responses =
   [ `Block_assassination
   | `Block_steal of [ `Captain | `Ambassador ]
   | `Block_foreign_aid ]
+[@@deriving sexp_of]
 
 module Challengable = struct
   type t = [ challengable_actions | challengable_responses ]
+  [@@deriving sexp_of]
 
   let required_card = function
     | `Tax -> Card.Duke
@@ -88,6 +92,7 @@ end
 (* Actions a player may choose. Some actions have a target (represented by a player id). *)
 module Action = struct
   type t = [ challengable_actions | non_challengable_actions ]
+  [@@deriving sexp_of]
 
   let to_string = function
     | `Income -> "Income"
