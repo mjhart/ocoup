@@ -315,30 +315,25 @@ end
 type t = {
   player_id : Player_id.t;
   to_client : string Pipe.Writer.t;
-  from_client : Yojson.Safe.t Pipe.Reader.t;
   mutable expected_message_handler : Yojson.Safe.t Ivar.t;
 }
 
 let create ~player_id ~reader ~writer =
   let t =
-    {
-      player_id;
-      to_client = writer;
-      from_client = reader;
-      expected_message_handler = Ivar.create ();
-    }
+    { player_id; to_client = writer; expected_message_handler = Ivar.create () }
   in
   don't_wait_for
-    (Pipe.iter t.from_client ~f:(fun message ->
-         (match Ivar.peek t.expected_message_handler with
-         | Some prior_message ->
-             Log.Global.info_s
-               [%message
-                 "Received unexpected message"
-                   ~prior_message:(Yojson.Safe.to_string prior_message)
-                   ~message:(Yojson.Safe.to_string message)]
-         | None -> Ivar.fill_exn t.expected_message_handler message);
-         return ()));
+    (Pipe.map reader ~f:Yojson.Safe.from_string
+    |> Pipe.iter ~f:(fun message ->
+           (match Ivar.peek t.expected_message_handler with
+           | Some prior_message ->
+               Log.Global.info_s
+                 [%message
+                   "Received unexpected message"
+                     ~prior_message:(Yojson.Safe.to_string prior_message)
+                     ~message:(Yojson.Safe.to_string message)]
+           | None -> Ivar.fill_exn t.expected_message_handler message);
+           return ()));
   t
 
 let write_to_client t query =

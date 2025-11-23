@@ -254,9 +254,7 @@ module Server = struct
                 Player_ios.llm ~model:Llm_player_io.o3_mini;
                 (fun player_id ->
                   let player_io =
-                    Websocket_player_io.create ~player_id
-                      ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
-                      ~writer
+                    Websocket_player_io.create ~player_id ~reader ~writer
                   in
                   return
                     (Player_ios.create (module Websocket_player_io) player_io));
@@ -290,8 +288,7 @@ module Server = struct
                 Player_ios.llm ~model:Llm_player_io.o3_mini;
                 (fun player_id ->
                   let player_io =
-                    Websocket_player_io.create ~player_id
-                      ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
+                    Websocket_player_io.create ~player_id ~reader
                       ~writer:from_game
                   in
                   Player_ios.create (module Websocket_player_io) player_io
@@ -336,9 +333,7 @@ module Server = struct
                 in
                 let player_id = Types.Player_id.of_int next_player_id in
                 let player_io =
-                  Websocket_player_io.create ~player_id
-                    ~reader:(Pipe.map reader ~f:Yojson.Safe.from_string)
-                    ~writer
+                  Websocket_player_io.create ~player_id ~reader ~writer
                 in
                 let player_ios_t =
                   Player_ios.create (module Websocket_player_io) player_io
