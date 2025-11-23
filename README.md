@@ -9,7 +9,6 @@ A multiplayer implementation of the card game Coup, with an OCaml server and Rea
 - **.github/**: GitHub Actions workflows for CI/CD
 - **Dockerfile**: For local development with the server
 - **Dockerfile.deploy**: Used by GitHub Actions to create the deployment image
-- **fly.toml**: Configuration for deploying to Fly.io
 
 ## Development Setup
 
@@ -59,51 +58,6 @@ docker build -t ocoup-server .
 docker run -p 8080:8080 ocoup-server
 ```
 
-## Deployment
-
-### Server Deployment to Fly.io
-
-The server can be deployed to Fly.io using the following steps:
-
-1. Install the Fly CLI:
-   ```bash
-   curl -L https://fly.io/install.sh | sh
-   ```
-
-2. Log in to Fly:
-   ```bash
-   fly auth login
-   ```
-
-3. Update the `fly.toml` file:
-   - Change `USERNAME` to your GitHub username
-   - Update the region if needed
-
-4. Deploy the application:
-   ```bash
-   fly launch --image ghcr.io/USERNAME/ocoup-server:latest
-   ```
-
-5. For subsequent deployments:
-   ```bash
-   fly deploy
-   ```
-
-### Client Deployment
-
-The client can be deployed to Vercel or any other hosting service that supports Next.js:
-
-```bash
-# Navigate to the client directory
-cd client
-
-# Build the project
-npm run build
-
-# For Vercel deployment
-vercel
-```
-
 ## CI/CD Pipeline
 
 This project uses GitHub Actions for continuous integration and delivery:
@@ -113,14 +67,6 @@ This project uses GitHub Actions for continuous integration and delivery:
 3. The image is tagged with the commit SHA and 'latest'
 
 See the [CI/CD README](.github/README.md) for more details.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Commit your changes: `git commit -m 'Add feature'`
-4. Push to the branch: `git push origin feature-name`
-5. Submit a pull request
 
 ## License
 
