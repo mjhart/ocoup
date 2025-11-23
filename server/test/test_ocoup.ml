@@ -334,7 +334,6 @@ let%expect_test "1.2 forced coup at 10+ coins" =
     Player 1: Choose_foreign_aid_response
     Player 1: Choose_action: Income
     Player 0: Choose_action: Income
-    Invalid action
     Player 0: Choose_action: Coup 1
     Player 1: Reveal_card
 

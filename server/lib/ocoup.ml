@@ -6,6 +6,7 @@ open Game
    - Visible_game_state -> Game_state and Game_state -> Hidden_game_state
    - maybe replace Player_io module with a record
    - create_rounds should really make sure every player is in the odd sized game the same number of times
+     - Num players must divide odd sized game * num rounds
 *)
 
 let run_game ~game_state =

@@ -134,6 +134,7 @@ end = struct
 end
 
 let run_test ?print_notifications ~starting_cards moves_list =
+  Log.Global.set_output [];
   let print_notifications = Option.is_some print_notifications in
   let moves = Queue.of_list moves_list in
   let game_state =
