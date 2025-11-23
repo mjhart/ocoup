@@ -354,6 +354,8 @@ module Server = struct
     let tournament_register_ws_handler ~(state : State.t) ~tournament_id =
       ws_handler (fun websocket ->
           let reader, writer = Websocket.pipes websocket in
+          Deferred.upon (Pipe.closed writer) (fun () ->
+              Log.Global.info_s [%message "PIPE TO CLIENT IS CLOSED"]);
           match Hashtbl.find state.tournaments tournament_id with
           | None ->
               let%bind () =
@@ -489,7 +491,9 @@ module Server = struct
     return ()
 end
 
-let run_server ~port = Server.run_server ~port
+let run_server ~port =
+  Log.Global.set_output [ Log.Output.stderr ~format:`Sexp () ];
+  Server.run_server ~port
 
 let run_game player_ios =
   let player_ios = List.map player_ios ~f:player_io_of_string in

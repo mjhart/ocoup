@@ -25,18 +25,14 @@ type t = {
 let create player_id ~model =
   let events = Queue.create () in
 
-  let log =
-    Log.create ~level:`Info ~on_error:`Raise
-      ~output:
-        [
-          Log.Output.file `Sexp
-            ~filename:[%string "player_%{player_id#Player_id}.log"];
-        ]
-      ()
-  in
+  let log = Log.copy (force Log.Global.log) in
+  Log.set_transform log
+    (Some
+       (Log.Message_event.add_tags
+          ~tags:[ ("player_id", player_id |> Player_id.to_string) ]));
   return { events; player_id; log; model }
 
-let log_string t message = Log.string t.log message
+let log_string t message = Log.info_s t.log [%message message]
 
 let enqueue_and_log t role prompt =
   Log.info_s t.log [%message (role : role) (prompt : string)];
@@ -337,6 +333,5 @@ let notify_of_challenge t ~challenging_player_id ~has_required_card =
     | false -> "successfully"
   in
   enqueue_and_log t Developer
-    [%string
-      "Player %{challenging_player_id#Player_id} challenged you %{success}"];
+    [%string "Player %{challenging_player_id#Player_id} challenged %{success}"];
   return ()
