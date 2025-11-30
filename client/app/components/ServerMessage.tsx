@@ -84,7 +84,7 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
   const JsonToggleButton = () => (
     <button
       onClick={toggleJsonView}
-      className="mt-2 text-xs bg-mcm-cream hover:bg-mcm-mustard text-mcm-navy rounded px-2 py-1 transition-colors"
+      className="mt-2 text-xs bg-mcm-cream hover:bg-mcm-mustard text-mcm-navy rounded-sm px-2 py-1 transition-colors"
     >
       {showJson ? "Hide JSON" : "Show JSON"}
     </button>

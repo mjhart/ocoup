@@ -31,7 +31,7 @@ export default function TournamentResults({ results, onReset }: TournamentResult
 
   return (
     <div className="space-y-6">
-      <div className="bg-mcm-navy/50 backdrop-blur-sm rounded-xl p-8 border border-mcm-mustard">
+      <div className="bg-mcm-navy/50 backdrop-blur-xs rounded-xl p-8 border border-mcm-mustard">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-white">🏆 Tournament Complete!</h2>
           <button

@@ -212,7 +212,7 @@ export default function Home() {
             <div className="mcm-control-panel">
               <div className="mcm-dial"></div>
               <div className="mcm-dial"></div>
-              <div className="flex-grow flex justify-between items-center">
+              <div className="grow flex justify-between items-center">
                 <div className="text-xs uppercase tracking-wider text-mcm-navy font-bold">Signal Strength</div>
                 {!isConnected && events.length > 0 && (
                   <div className="flex gap-2">

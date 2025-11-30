@@ -205,7 +205,7 @@ export default function TournamentProgress({
   }, [tournamentData.numHumanPlayers, registerAllPlayers, startTournament]);
 
   return (
-    <div className="bg-mcm-navy/50 backdrop-blur-sm rounded-xl p-8 border border-mcm-mustard">
+    <div className="bg-mcm-navy/50 backdrop-blur-xs rounded-xl p-8 border border-mcm-mustard">
       <h2 className="text-2xl font-bold text-white mb-6">
         {state === 'registering' ? '👥 Registering Players' : '🎮 Tournament in Progress'}
       </h2>

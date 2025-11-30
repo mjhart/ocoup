@@ -1,13 +1,164 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
-:root {
-  --foreground-rgb: 38, 70, 83; /* navy */
-  --background-start-rgb: 248, 243, 230; /* cream */
-  --background-end-rgb: 250, 249, 247; /* offwhite */
-  --accent-color: 231, 111, 81; /* coral */
-  --accent-color-dark: 208, 90, 62; /* darker coral */
+@plugin '@tailwindcss/forms';
+
+@theme {
+  --color-mcm-teal: #2a9d8f;
+  --color-mcm-mustard: #e9c46a;
+  --color-mcm-orange: #f4a261;
+  --color-mcm-coral: #e76f51;
+  --color-mcm-cream: #f8f3e6;
+  --color-mcm-navy: #264653;
+  --color-mcm-brown: #854d27;
+  --color-mcm-sage: #a8dadc;
+  --color-mcm-offwhite: #faf9f7;
+  --color-mcm-charcoal: #333333;
+
+  --color-border: #e9c46a;
+
+  --color-accent: #e76f51;
+  --color-accent-dark: #d05a3e;
+
+  --font-sans: Futura, Century Gothic, Avenir Next, Gill Sans, sans-serif;
+  --font-display: var(--font-playfair), Playfair Display, Georgia, serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+
+  --shadow-mcm: 0.5rem 0.5rem 0 0 rgba(231, 111, 81, 0.2);
+  --shadow-mcm-lg: 1rem 1rem 0 0 rgba(231, 111, 81, 0.2);
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility main {
+  @apply min-h-screen p-6 max-w-4xl mx-auto md:p-10;
+}
+
+@utility header {
+  @apply flex items-center justify-between mb-8 border-b-4 border-mcm-mustard pb-4;
+}
+
+@utility title {
+  @apply text-2xl font-bold text-mcm-navy uppercase tracking-widest md:text-4xl;
+}
+
+@utility content {
+  @apply flex flex-col gap-6 grow;
+}
+
+@utility messages {
+  @apply bg-mcm-offwhite rounded-3xl shadow-mcm-lg border-2 border-mcm-mustard min-h-[400px] max-h-[600px] overflow-y-auto p-6;
+}
+
+@utility response-form {
+  @apply bg-mcm-offwhite rounded-3xl shadow-mcm border-2 border-mcm-mustard p-6;
+}
+
+@utility event-message {
+  @apply p-4 rounded-xl mb-3 text-sm font-mono;
+
+  &.received {
+    @apply bg-mcm-sage border border-mcm-teal shadow-mcm;
+  }
+
+  &.sent {
+    @apply bg-mcm-orange border border-mcm-coral;
+  }
+
+  &.system {
+    @apply bg-mcm-cream border border-mcm-mustard text-mcm-brown;
+  }
+
+  &.disconnected {
+    @apply bg-mcm-orange border-2 border-mcm-coral text-white font-bold animate-pulse;
+  }
+}
+
+@utility received {
+  &.event-message {
+    @apply bg-mcm-sage border border-mcm-teal shadow-mcm;
+  }
+}
+
+@utility sent {
+  &.event-message {
+    @apply bg-mcm-orange border border-mcm-coral;
+  }
+}
+
+@utility system {
+  &.event-message {
+    @apply bg-mcm-cream border border-mcm-mustard text-mcm-brown;
+  }
+}
+
+@utility disconnected {
+  &.event-message {
+    @apply bg-mcm-orange border-2 border-mcm-coral text-white font-bold animate-pulse;
+  }
+}
+
+@utility btn {
+  @apply py-3 px-6 bg-mcm-coral text-white border-none rounded-xl shadow-mcm 
+           transition-all duration-200 cursor-pointer text-sm font-bold uppercase tracking-widest
+           hover:bg-mcm-orange hover:shadow-mcm-lg disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+@utility mcm-dial {
+  /* Mid-century modern decorative elements */
+  @apply w-6 h-6 rounded-full border-2 border-mcm-mustard bg-mcm-offwhite relative
+           before:content-[''] before:absolute before:top-1/2 before:left-1/2 
+           before:-translate-x-1/2 before:-translate-y-1/2 before:w-2 before:h-2
+           before:rounded-full before:bg-mcm-brown;
+}
+
+@utility mcm-border {
+  @apply border-2 border-mcm-mustard rounded-3xl p-1;
+}
+
+@utility mcm-panel {
+  @apply bg-mcm-offwhite rounded-3xl shadow-mcm border-2 border-mcm-mustard p-6
+           relative overflow-hidden;
+
+  &::before {
+    @apply content-[''] absolute top-0 right-0 w-16 h-16 -mr-8 -mt-8
+           rounded-full bg-mcm-orange opacity-30;
+  }
+}
+
+@utility mcm-control-panel {
+  @apply flex gap-3 items-center justify-start border-t-2 border-mcm-mustard pt-3 mt-3;
+}
+
+@layer utilities {
+  :root {
+    --foreground-rgb: 38, 70, 83; /* navy */
+    --background-start-rgb: 248, 243, 230; /* cream */
+    --background-end-rgb: 250, 249, 247; /* offwhite */
+    --accent-color: 231, 111, 81; /* coral */
+    --accent-color-dark: 208, 90, 62; /* darker coral */
+  }
 }
 
 @layer base {
@@ -33,84 +184,6 @@
   }
 
   textarea:focus {
-    @apply outline-none border-mcm-coral shadow-mcm;
-  }
-}
-
-@layer components {
-  .main {
-    @apply min-h-screen p-6 max-w-4xl mx-auto md:p-10;
-  }
-
-  .header {
-    @apply flex items-center justify-between mb-8 border-b-4 border-mcm-mustard pb-4;
-  }
-
-  .title {
-    @apply text-2xl font-bold text-mcm-navy uppercase tracking-widest md:text-4xl;
-  }
-
-  .content {
-    @apply flex flex-col gap-6 flex-grow;
-  }
-
-  .messages {
-    @apply bg-mcm-offwhite rounded-3xl shadow-mcm-lg border-2 border-mcm-mustard min-h-[400px] max-h-[600px] overflow-y-auto p-6;
-  }
-
-  .response-form {
-    @apply bg-mcm-offwhite rounded-3xl shadow-mcm border-2 border-mcm-mustard p-6;
-  }
-
-  .event-message {
-    @apply p-4 rounded-xl mb-3 text-sm font-mono;
-  }
-
-  .event-message.received {
-    @apply bg-mcm-sage border border-mcm-teal shadow-mcm;
-  }
-
-  .event-message.sent {
-    @apply bg-mcm-orange border border-mcm-coral;
-  }
-
-  .event-message.system {
-    @apply bg-mcm-cream border border-mcm-mustard text-mcm-brown;
-  }
-
-  .event-message.disconnected {
-    @apply bg-mcm-orange border-2 border-mcm-coral text-white font-bold animate-pulse;
-  }
-
-  .btn {
-    @apply py-3 px-6 bg-mcm-coral text-white border-none rounded-xl shadow-mcm 
-           transition-all duration-200 cursor-pointer text-sm font-bold uppercase tracking-widest
-           hover:bg-mcm-orange hover:shadow-mcm-lg disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-  
-  /* Mid-century modern decorative elements */
-  .mcm-dial {
-    @apply w-6 h-6 rounded-full border-2 border-mcm-mustard bg-mcm-offwhite relative
-           before:content-[''] before:absolute before:top-1/2 before:left-1/2 
-           before:-translate-x-1/2 before:-translate-y-1/2 before:w-2 before:h-2
-           before:rounded-full before:bg-mcm-brown;
-  }
-  
-  .mcm-border {
-    @apply border-2 border-mcm-mustard rounded-3xl p-1;
-  }
-  
-  .mcm-panel {
-    @apply bg-mcm-offwhite rounded-3xl shadow-mcm border-2 border-mcm-mustard p-6
-           relative overflow-hidden;
-  }
-  
-  .mcm-panel::before {
-    @apply content-[''] absolute top-0 right-0 w-16 h-16 -mr-8 -mt-8
-           rounded-full bg-mcm-orange opacity-30;
-  }
-  
-  .mcm-control-panel {
-    @apply flex gap-3 items-center justify-start border-t-2 border-mcm-mustard pt-3 mt-3;
+    @apply outline-hidden border-mcm-coral shadow-mcm;
   }
 } 
