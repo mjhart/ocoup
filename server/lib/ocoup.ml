@@ -478,6 +478,19 @@ module Server = struct
                 request
           | `POST, [ "/"; "tournaments"; tournament_id; "start" ] ->
               Start_tournament.handle ~state ~tournament_id ~body inet request
+              | `OPTIONS, [ "/"; "tournaments"; _tournament_id; "start" ] ->
+              let headers =
+                Cohttp.Header.of_list
+                  [
+                    ("Access-Control-Allow-Origin", "*");
+                    ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+                    ("Access-Control-Allow-Headers", "Content-Type");
+                  ]
+              in
+              `Response
+                ( Cohttp.Response.make ~status:`OK ~headers (),
+                  Cohttp_async.Body.empty )
+              |> return
           | `GET, [ "/"; "games"; game_id; "updates" ] ->
               with_state ~state ~game_id (fun ~reader ~writer:_ ->
                   updates_ws_handler ~updates_reader:reader ~body inet request)
