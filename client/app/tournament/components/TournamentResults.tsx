@@ -31,12 +31,12 @@ export default function TournamentResults({ results, onReset }: TournamentResult
 
   return (
     <div className="space-y-6">
-      <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-8 border border-slate-700">
+      <div className="bg-mcm-navy/50 backdrop-blur-sm rounded-xl p-8 border border-mcm-mustard">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-white">🏆 Tournament Complete!</h2>
           <button
             onClick={onReset}
-            className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+            className="bg-accent hover:bg-accent-dark text-white font-semibold py-2 px-4 rounded-lg transition-colors"
           >
             New Tournament
           </button>
@@ -48,15 +48,15 @@ export default function TournamentResults({ results, onReset }: TournamentResult
             {sortedScores.map((entry, index) => (
               <div
                 key={entry.playerId}
-                className={`bg-slate-900/50 rounded-lg p-4 flex items-center justify-between ${
-                  index === 0 ? 'border-2 border-yellow-400' : 'border border-slate-700'
+                className={`bg-mcm-charcoal/50 rounded-lg p-4 flex items-center justify-between ${
+                  index === 0 ? 'border-2 border-mcm-mustard' : 'border border-mcm-brown'
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <span className="text-2xl w-10">{getMedal(index)}</span>
                   <span className="text-white font-semibold">Player {entry.playerId}</span>
                 </div>
-                <span className="text-2xl font-bold text-purple-400">{entry.score}</span>
+                <span className="text-2xl font-bold text-mcm-coral">{entry.score}</span>
               </div>
             ))}
           </div>
@@ -64,9 +64,9 @@ export default function TournamentResults({ results, onReset }: TournamentResult
           {sortedScores.length > 0 && (
             <div className="mt-6 text-center">
               <p className="text-xl text-white">
-                🎉 Winner: <span className="font-bold text-yellow-400">Player {sortedScores[0].playerId}</span>
+                🎉 Winner: <span className="font-bold text-mcm-mustard">Player {sortedScores[0].playerId}</span>
               </p>
-              <p className="text-lg text-slate-300 mt-2">
+              <p className="text-lg text-mcm-cream mt-2">
                 with {sortedScores[0].score} points!
               </p>
             </div>
@@ -80,14 +80,14 @@ export default function TournamentResults({ results, onReset }: TournamentResult
               {results.results.map((round) => (
                 <div
                   key={round.round}
-                  className="bg-slate-900/50 rounded-lg p-4 border border-slate-700"
+                  className="bg-mcm-charcoal/50 rounded-lg p-4 border border-mcm-brown"
                 >
-                  <h4 className="text-lg font-semibold text-purple-400 mb-3">
+                  <h4 className="text-lg font-semibold text-mcm-coral mb-3">
                     🎲 Round {round.round}
                   </h4>
                   <div className="space-y-3">
                     {round.games.map((game) => (
-                      <div key={game.game} className="pl-4 border-l-2 border-slate-700">
+                      <div key={game.game} className="pl-4 border-l-2 border-mcm-mustard">
                         {game.status === 'completed' ? (
                           <div>
                             <p className="text-white font-medium mb-1">Game {game.game}</p>
@@ -97,7 +97,7 @@ export default function TournamentResults({ results, onReset }: TournamentResult
                               </p>
                             )}
                             {game.eliminated && game.eliminated.length > 0 && (
-                              <p className="text-sm text-slate-400">
+                              <p className="text-sm text-mcm-sage">
                                 ❌ Eliminated (in order): {game.eliminated.join(', ')}
                               </p>
                             )}

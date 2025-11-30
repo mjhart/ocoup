@@ -74,25 +74,25 @@ export default function TournamentSetup({ onComplete, onError }: TournamentSetup
   };
 
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-8 border border-slate-700">
+    <div className="bg-mcm-navy/50 backdrop-blur-sm rounded-xl p-8 border border-mcm-mustard">
       <h2 className="text-2xl font-bold text-white mb-6">Tournament Setup</h2>
 
       <div className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
+          <label className="block text-sm font-medium text-mcm-cream mb-2">
             Server URL
           </label>
           <input
             type="text"
             value={serverUrl}
             onChange={(e) => setServerUrl(e.target.value)}
-            className="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="w-full bg-mcm-charcoal/50 border border-mcm-brown rounded-lg px-4 py-2 text-white placeholder-mcm-sage focus:outline-none focus:ring-2 focus:ring-accent"
             placeholder="http://localhost:9000"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
+          <label className="block text-sm font-medium text-mcm-cream mb-2">
             Number of Human Players
           </label>
           <input
@@ -101,32 +101,32 @@ export default function TournamentSetup({ onComplete, onError }: TournamentSetup
             max="20"
             value={numHumanPlayers}
             onChange={(e) => setNumHumanPlayers(parseInt(e.target.value) || 0)}
-            className="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="w-full bg-mcm-charcoal/50 border border-mcm-brown rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-accent"
           />
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-sm text-mcm-sage">
             Each human player will auto-play using simple AI logic
           </p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-3">
+          <label className="block text-sm font-medium text-mcm-cream mb-3">
             Bot Players (Optional)
           </label>
           <div className="space-y-2">
             {BOT_TYPES.map((bot) => (
               <label
                 key={bot.value}
-                className="flex items-center gap-3 p-3 bg-slate-900/50 border border-slate-600 rounded-lg cursor-pointer hover:border-purple-500 transition-colors"
+                className="flex items-center gap-3 p-3 bg-mcm-charcoal/50 border border-mcm-brown rounded-lg cursor-pointer hover:border-accent transition-colors"
               >
                 <input
                   type="checkbox"
                   checked={selectedBots.includes(bot.value)}
                   onChange={() => handleBotToggle(bot.value)}
-                  className="w-4 h-4 rounded border-slate-500 text-purple-600 focus:ring-purple-500 focus:ring-offset-slate-900"
+                  className="w-4 h-4 rounded border-mcm-brown text-accent focus:ring-accent focus:ring-offset-mcm-charcoal"
                 />
                 <div className="flex-1">
                   <div className="text-white font-medium">{bot.label}</div>
-                  <div className="text-sm text-slate-400">{bot.description}</div>
+                  <div className="text-sm text-mcm-sage">{bot.description}</div>
                 </div>
                 {selectedBots.includes(bot.value) && (
                   <div className="flex items-center gap-2">
@@ -136,11 +136,11 @@ export default function TournamentSetup({ onComplete, onError }: TournamentSetup
                         e.preventDefault();
                         setSelectedBots((prev) => [...prev, bot.value]);
                       }}
-                      className="text-purple-400 hover:text-purple-300 text-sm px-2 py-1"
+                      className="text-mcm-coral hover:text-mcm-orange text-sm px-2 py-1"
                     >
                       +
                     </button>
-                    <span className="text-slate-400 text-sm">
+                    <span className="text-mcm-sage text-sm">
                       {selectedBots.filter((b) => b === bot.value).length}
                     </span>
                     <button
@@ -155,7 +155,7 @@ export default function TournamentSetup({ onComplete, onError }: TournamentSetup
                           ]);
                         }
                       }}
-                      className="text-purple-400 hover:text-purple-300 text-sm px-2 py-1"
+                      className="text-mcm-coral hover:text-mcm-orange text-sm px-2 py-1"
                     >
                       -
                     </button>
@@ -166,15 +166,15 @@ export default function TournamentSetup({ onComplete, onError }: TournamentSetup
           </div>
         </div>
 
-        <div className="pt-4 border-t border-slate-700">
+        <div className="pt-4 border-t border-mcm-mustard">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-slate-300">Total Players:</span>
+            <span className="text-mcm-cream">Total Players:</span>
             <span className="text-2xl font-bold text-white">{totalPlayers}</span>
           </div>
           <button
             onClick={handleCreateTournament}
             disabled={isCreating || totalPlayers < 2}
-            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+            className="w-full bg-accent hover:bg-accent-dark disabled:bg-mcm-brown disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
           >
             {isCreating ? 'Creating Tournament...' : 'Create Tournament'}
           </button>

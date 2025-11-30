@@ -29,24 +29,25 @@ module.exports = {
       },
       fontFamily: {
         sans: [
-          'Futura', 
+          'Futura',
           'Century Gothic',
           'Avenir Next',
-          'Gill Sans', 
+          'Gill Sans',
           'sans-serif'
         ],
         display: [
+          'var(--font-playfair)',
           'Playfair Display',
           'Georgia',
           'serif'
         ],
         mono: [
-          'ui-monospace', 
-          'SFMono-Regular', 
-          'Menlo', 
-          'Monaco', 
-          'Consolas', 
-          '"Courier New"', 
+          'ui-monospace',
+          'SFMono-Regular',
+          'Menlo',
+          'Monaco',
+          'Consolas',
+          '"Courier New"',
           'monospace'
         ],
       },

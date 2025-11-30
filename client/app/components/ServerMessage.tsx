@@ -70,21 +70,21 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
   // JSON display component
   const JsonDisplay = () => {
     if (!showJson) return null;
-    
+
     return (
-      <div className="mt-3 p-3 bg-gray-100 rounded-md border border-gray-300">
+      <div className="mt-3 p-3 bg-mcm-offwhite rounded-md border border-mcm-cream">
         <pre className="text-xs whitespace-pre-wrap overflow-x-auto">
           {JSON.stringify(message, null, 2)}
         </pre>
       </div>
     );
   };
-  
-  // Reusable JSON toggle button 
+
+  // Reusable JSON toggle button
   const JsonToggleButton = () => (
-    <button 
+    <button
       onClick={toggleJsonView}
-      className="mt-2 text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 rounded px-2 py-1 transition-colors"
+      className="mt-2 text-xs bg-mcm-cream hover:bg-mcm-mustard text-mcm-navy rounded px-2 py-1 transition-colors"
     >
       {showJson ? "Hide JSON" : "Show JSON"}
     </button>
@@ -94,7 +94,7 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
     case 'Choose_action':
       return (
         <div>
-          <div className="font-semibold text-indigo-600">Your turn! Choose an action:</div>
+          <div className="font-semibold text-accent">Your turn! Choose an action:</div>
           {formatGameState(message.visible_game_state)}
           <JsonToggleButton />
           <JsonDisplay />
@@ -140,7 +140,7 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
     case 'Choose_cards_to_return':
       return (
         <div>
-          <div className="font-semibold text-indigo-600">Choose two cards to return:</div>
+          <div className="font-semibold text-accent">Choose two cards to return:</div>
           <div className="mt-2">
             Available cards: {message.cards.map(formatCard).join(', ')}
           </div>
@@ -189,7 +189,7 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
     case 'Action_chosen':
       return (
         <div>
-          <div className="text-gray-600">
+          <div className="text-mcm-navy">
             Player {message.player_id} chose: {formatAction(message.action)}
           </div>
           <JsonToggleButton />
@@ -233,7 +233,7 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
     case 'Player_responded':
       return (
         <div>
-          <div className="text-gray-600">
+          <div className="text-mcm-navy">
             Player {message.player_id} has responded
           </div>
           <JsonToggleButton />
@@ -244,7 +244,7 @@ export function ServerMessage({ message }: { message: ServerMessage }) {
     case 'Game_start':
       return (
         <div>
-          <div className="font-semibold text-indigo-600">Game started!</div>
+          <div className="font-semibold text-accent">Game started!</div>
           <div className="text-mcm-navy">
             You are player {message.self_player_id}
           </div>

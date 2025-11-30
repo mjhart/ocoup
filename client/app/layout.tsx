@@ -1,9 +1,13 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Playfair_Display } from 'next/font/google'
 import './globals.css'
 import { Navigation } from './components/Navigation'
 
-const inter = Inter({ subsets: ['latin'] })
+const playfairDisplay = Playfair_Display({
+  subsets: ['latin'],
+  weight: ['400', '700'],
+  variable: '--font-playfair',
+})
 
 export const metadata: Metadata = {
   title: 'Coup Game Client',
@@ -17,7 +21,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={playfairDisplay.variable}>
         <Navigation />
         {children}
       </body>

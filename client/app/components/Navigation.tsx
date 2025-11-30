@@ -7,7 +7,7 @@ export function Navigation() {
   const pathname = usePathname();
 
   return (
-    <nav className="bg-slate-800 border-b border-slate-700">
+    <nav className="bg-mcm-navy border-b border-mcm-mustard">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center">
@@ -20,8 +20,8 @@ export function Navigation() {
               href="/"
               className={`px-3 py-2 rounded-md text-sm font-medium ${
                 pathname === '/'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                  ? 'bg-mcm-charcoal text-white'
+                  : 'text-mcm-cream hover:bg-mcm-brown hover:text-white'
               }`}
             >
               Single Game
@@ -30,8 +30,8 @@ export function Navigation() {
               href="/tournament"
               className={`px-3 py-2 rounded-md text-sm font-medium ${
                 pathname === '/tournament'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                  ? 'bg-mcm-charcoal text-white'
+                  : 'text-mcm-cream hover:bg-mcm-brown hover:text-white'
               }`}
             >
               Tournament

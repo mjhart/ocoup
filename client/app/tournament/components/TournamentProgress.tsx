@@ -205,25 +205,25 @@ export default function TournamentProgress({
   }, [tournamentData.numHumanPlayers, registerAllPlayers, startTournament]);
 
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-8 border border-slate-700">
+    <div className="bg-mcm-navy/50 backdrop-blur-sm rounded-xl p-8 border border-mcm-mustard">
       <h2 className="text-2xl font-bold text-white mb-6">
         {state === 'registering' ? '👥 Registering Players' : '🎮 Tournament in Progress'}
       </h2>
 
       <div className="mb-6">
         <h3 className="text-lg font-semibold text-white mb-3">Tournament Info</h3>
-        <div className="bg-slate-900/50 rounded-lg p-4 space-y-2">
+        <div className="bg-mcm-charcoal/50 rounded-lg p-4 space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">Tournament ID:</span>
+            <span className="text-mcm-sage">Tournament ID:</span>
             <span className="text-white font-mono">{tournamentData.tournamentId}</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">Human Players:</span>
+            <span className="text-mcm-sage">Human Players:</span>
             <span className="text-white">{tournamentData.numHumanPlayers}</span>
           </div>
           {tournamentData.botPlayers.length > 0 && (
             <div className="flex justify-between text-sm">
-              <span className="text-slate-400">Bot Players:</span>
+              <span className="text-mcm-sage">Bot Players:</span>
               <span className="text-white">{tournamentData.botPlayers.join(', ')}</span>
             </div>
           )}
@@ -237,7 +237,7 @@ export default function TournamentProgress({
             {players.map((player) => (
               <div
                 key={player.playerNum}
-                className="bg-slate-900/50 rounded-lg p-3 flex items-center justify-between"
+                className="bg-mcm-charcoal/50 rounded-lg p-3 flex items-center justify-between"
               >
                 <span className="text-white">Player {player.playerNum}</span>
                 <span
@@ -261,14 +261,14 @@ export default function TournamentProgress({
 
       <div>
         <h3 className="text-lg font-semibold text-white mb-3">Activity Log</h3>
-        <div className="bg-slate-900/50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
+        <div className="bg-mcm-charcoal/50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
           {logs.map((log, index) => (
-            <div key={index} className="text-slate-300 mb-1">
+            <div key={index} className="text-mcm-cream mb-1">
               {log}
             </div>
           ))}
           {isStarting && (
-            <div className="text-purple-400 animate-pulse">
+            <div className="text-mcm-coral animate-pulse">
               🚀 Starting tournament...
             </div>
           )}
