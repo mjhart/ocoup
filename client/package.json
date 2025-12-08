@@ -11,7 +11,7 @@
     "tournament": "node tournament-cli.js"
   },
   "dependencies": {
-    "next": "15.2.1",
+    "next": "^15.5.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "ws": "^8.18.3"
