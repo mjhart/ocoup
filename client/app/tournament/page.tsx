@@ -60,19 +60,19 @@ export default function TournamentPage() {
   };
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-mcm-navy via-mcm-brown to-mcm-navy p-8">
+    <div className="min-h-screen p-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">🎮 OCoup Tournament</h1>
-          <p className="text-mcm-cream">Create and manage multiplayer Coup tournaments</p>
+          <h1 className="text-4xl font-bold text-mcm-navy mb-2">🎮 OCoup Tournament</h1>
+          <p className="text-mcm-navy">Create and manage multiplayer Coup tournaments</p>
         </div>
 
         {error && (
-          <div className="mb-6 bg-red-500/10 border border-red-500 rounded-lg p-4">
-            <p className="text-red-400">❌ {error}</p>
+          <div className="mb-6 bg-mcm-coral/10 border-2 border-mcm-coral rounded-xl p-4">
+            <p className="text-mcm-coral font-bold">❌ {error}</p>
             <button
               onClick={() => setError(null)}
-              className="mt-2 text-sm text-red-300 hover:text-red-200 underline"
+              className="mt-2 text-sm text-mcm-coral hover:text-mcm-orange underline font-bold uppercase tracking-wider"
             >
               Dismiss
             </button>

@@ -9,9 +9,9 @@ export function BotHelp() {
     <div className="mcm-panel mt-4">
       <div className="flex justify-between items-center mb-3 pb-2 border-b-2 border-mcm-mustard">
         <h2 className="font-display text-xl text-mcm-navy">BOT DEVELOPMENT</h2>
-        <button 
-          onClick={() => setIsOpen(!isOpen)} 
-          className="text-xs uppercase tracking-wider bg-mcm-teal text-white px-3 py-1 rounded-md font-bold hover:bg-mcm-sage"
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="btn-small-secondary"
         >
           {isOpen ? 'Hide Guide' : 'Show Guide'}
         </button>

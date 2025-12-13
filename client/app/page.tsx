@@ -142,7 +142,7 @@ export default function Home() {
                 </button>
                 <button
                   onClick={createBotGame}
-                  className="btn bg-mcm-coral hover:bg-mcm-orange"
+                  className="btn"
                 >
                   Bot Game
                 </button>
@@ -216,15 +216,15 @@ export default function Home() {
                 <div className="text-xs uppercase tracking-wider text-mcm-navy font-bold">Signal Strength</div>
                 {!isConnected && events.length > 0 && (
                   <div className="flex gap-2">
-                    <button 
+                    <button
                       onClick={() => connectWebSocket()}
-                      className="text-xs uppercase tracking-wider bg-mcm-coral text-white px-3 py-1 rounded-md font-bold hover:bg-mcm-orange"
+                      className="btn-small"
                     >
                       Reconnect
                     </button>
-                    <button 
+                    <button
                       onClick={createBotGame}
-                      className="text-xs uppercase tracking-wider bg-mcm-mustard text-white px-3 py-1 rounded-md font-bold hover:bg-mcm-orange"
+                      className="btn-small"
                     >
                       Bot Game
                     </button>
