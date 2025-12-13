@@ -73,13 +73,7 @@ module Server = struct
       let reader, writer = Pipe.create () in
       let game_id = State.add_game ~state ~reader ~writer in
       let body =
-        Yojson.Safe.to_string
-          (`Assoc
-             [
-               ("game_id", `String game_id);
-               ("updates_url", `String [%string "/games/%{game_id}/updates"]);
-               ("player_url", `String [%string "/games/%{game_id}/player"]);
-             ])
+        Yojson.Safe.to_string (Protocol.Create_game_response.create ~game_id)
       in
       let headers =
         Cohttp.Header.of_list
@@ -99,28 +93,8 @@ module Server = struct
     let handle ~state ~body _inet _request =
       let%bind body_string = Cohttp_async.Body.to_string body in
       let json = Yojson.Safe.from_string body_string in
-      let max_players, bot_players =
-        match json with
-        | `Assoc fields ->
-            let max_players =
-              match
-                List.Assoc.find fields ~equal:String.equal "max_players"
-              with
-              | Some (`Int n) -> n
-              | _ -> 12
-            in
-            let bot_players =
-              match
-                List.Assoc.find fields ~equal:String.equal "bot_players"
-              with
-              | Some (`List bots) ->
-                  List.filter_map bots ~f:(function
-                    | `String s -> Some s
-                    | _ -> None)
-              | _ -> []
-            in
-            (max_players, bot_players)
-        | _ -> (12, [])
+      let { Protocol.Create_tournament_request.max_players; bot_players } =
+        Protocol.Create_tournament_request.of_yojson json
       in
       let tournament = Tournament.create ~max_players in
       (* Register bot players *)
@@ -142,13 +116,8 @@ module Server = struct
       let tournament_id = State.add_tournament ~state ~tournament in
       let response_body =
         Yojson.Safe.to_string
-          (`Assoc
-             [
-               ("tournament_id", `String tournament_id);
-               ( "register_url",
-                 `String [%string "/tournaments/%{tournament_id}/register"] );
-               ("num_bot_players", `Int (List.length bot_players));
-             ])
+          (Protocol.Create_tournament_response.create ~tournament_id
+             ~num_bot_players:(List.length bot_players))
       in
       let headers =
         Cohttp.Header.of_list
@@ -170,7 +139,7 @@ module Server = struct
       | None ->
           let body =
             Yojson.Safe.to_string
-              (`Assoc [ ("error", `String "Tournament not found") ])
+              (Protocol.Error_response.create "Tournament not found")
           in
           `Response
             ( Cohttp.Response.make ~status:`Not_found (),
@@ -180,7 +149,7 @@ module Server = struct
           if tournament_data.started then
             let body =
               Yojson.Safe.to_string
-                (`Assoc [ ("error", `String "Tournament already started") ])
+                (Protocol.Error_response.create "Tournament already started")
             in
             `Response
               ( Cohttp.Response.make ~status:`Bad_request (),
@@ -196,68 +165,33 @@ module Server = struct
             let%bind results = Tournament.start tournament_data.tournament in
             (* Calculate scores *)
             let scores = Tournament.score_results results in
-            (* Convert scores to JSON *)
-            let scores_json =
-              Map.to_alist scores
-              |> List.map ~f:(fun (player_id, score) ->
-                     (Types.Player_id.to_string player_id, `Int score))
-              |> fun assoc -> `Assoc assoc
-            in
-            (* Convert results to JSON *)
-            let results_json =
-              `List
-                (List.mapi results ~f:(fun round_idx round ->
-                     `Assoc
-                       [
-                         ("round", `Int (round_idx + 1));
-                         ( "games",
-                           `List
-                             (List.mapi round ~f:(fun game_idx game_result ->
-                                  match game_result with
-                                  | Ok game_state ->
-                                      let Game.Game_state.
-                                            { players; eliminated_players; _ } =
-                                        game_state
-                                      in
-                                      `Assoc
-                                        [
-                                          ("game", `Int (game_idx + 1));
-                                          ("status", `String "completed");
-                                          ( "winners",
-                                            `List
-                                              (List.map players
-                                                 ~f:(fun
-                                                     Game.Player.{ id; _ } ->
-                                                   `String
-                                                     (Types.Player_id.to_string
-                                                        id))) );
-                                          ( "eliminated",
-                                            `List
-                                              (List.rev_map eliminated_players
-                                                 ~f:(fun
-                                                     Game.Player.{ id; _ } ->
-                                                   `String
-                                                     (Types.Player_id.to_string
-                                                        id))) );
-                                        ]
-                                  | Error err ->
-                                      `Assoc
-                                        [
-                                          ("game", `Int (game_idx + 1));
-                                          ("status", `String "error");
-                                          ( "error",
-                                            `String (Error.to_string_hum err) );
-                                        ])) );
-                       ]))
+            (* Convert results to protocol format *)
+            let protocol_results =
+              List.map results ~f:(fun round ->
+                  List.map round ~f:(fun game_result ->
+                      match game_result with
+                      | Ok game_state ->
+                          let Game.Game_state.
+                                { players; eliminated_players; _ } =
+                            game_state
+                          in
+                          Protocol.Tournament_results.Completed
+                            {
+                              winners =
+                                List.map players ~f:(fun Game.Player.{ id; _ } ->
+                                    id);
+                              eliminated =
+                                List.rev_map eliminated_players
+                                  ~f:(fun Game.Player.{ id; _ } -> id);
+                            }
+                      | Error err ->
+                          Protocol.Tournament_results.Error
+                            (Error.to_string_hum err)))
             in
             let response_body =
               Yojson.Safe.to_string
-                (`Assoc
-                   [
-                     ("status", `String "completed");
-                     ("scores", scores_json);
-                     ("results", results_json);
-                   ])
+                (Protocol.Tournament_results.create_response ~scores
+                   ~results:protocol_results)
             in
             let headers =
               Cohttp.Header.of_list
@@ -361,7 +295,7 @@ module Server = struct
               let%bind () =
                 Pipe.write writer
                   (Yojson.Safe.to_string
-                     (`Assoc [ ("error", `String "Tournament not found") ]))
+                     (Protocol.Error_response.create "Tournament not found"))
               in
               Pipe.close writer;
               return ()
@@ -370,8 +304,8 @@ module Server = struct
                 let%bind () =
                   Pipe.write writer
                     (Yojson.Safe.to_string
-                       (`Assoc
-                          [ ("error", `String "Tournament already started") ]))
+                       (Protocol.Error_response.create
+                          "Tournament already started"))
                 in
                 Pipe.close writer;
                 return ())
@@ -397,8 +331,8 @@ module Server = struct
                       let%bind () =
                         Pipe.write writer
                           (Yojson.Safe.to_string
-                             (`Assoc
-                                [ ("error", `String (Error.to_string_hum e)) ]))
+                             (Protocol.Error_response.create
+                                (Error.to_string_hum e)))
                       in
                       Pipe.close writer;
                       Error.raise e
@@ -408,11 +342,8 @@ module Server = struct
                 let%bind () =
                   Pipe.write writer
                     (Yojson.Safe.to_string
-                       (`Assoc
-                          [
-                            ("status", `String "registered");
-                            ("player_id", `Int next_player_id);
-                          ]))
+                       (Protocol.Tournament_registration_response.registered
+                          ~player_id:next_player_id))
                 in
                 Log.Global.info_s
                   [%message
