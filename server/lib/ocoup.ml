@@ -205,6 +205,16 @@ module Server = struct
             |> return)
   end
 
+  let run_game' game_state =
+    match%bind
+      Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
+          run_game ~game_state)
+    with
+    | Ok () -> return ()
+    | Error e ->
+        Log.Global.error_s [%message "Error running game" (e : Exn.t)];
+        return ()
+
   let run_server ~port =
     let non_ws_request ~body:_ _inet _request =
       Lazy.force not_found_response |> return
@@ -238,14 +248,7 @@ module Server = struct
               ]
             >>| Or_error.ok_exn
           in
-          match%bind
-            Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
-                run_game ~game_state)
-          with
-          | Ok () -> return ()
-          | Error e ->
-              Log.Global.error_s [%message "Error running game" (e : Exn.t)];
-              return ())
+          run_game' game_state)
     in
     let player_with_updates_ws_handler ~bot_players updates_writer =
       ws_handler (fun websocket ->
@@ -268,20 +271,11 @@ module Server = struct
             Game_state.init (bot_player_ios @ [ websocket_player_io ])
             >>| Or_error.ok_exn
           in
-          match%bind
-            Monitor.try_with ~extract_exn:true ~rest:`Log (fun () ->
-                run_game ~game_state)
-          with
-          | Ok () -> return ()
-          | Error e ->
-              Log.Global.error_s [%message "Error running game" (e : Exn.t)];
-              return ())
+          run_game' game_state)
     in
     let tournament_register_ws_handler ~(state : State.t) ~tournament_id =
       ws_handler (fun websocket ->
           let reader, writer = Websocket.pipes websocket in
-          Deferred.upon (Pipe.closed writer) (fun () ->
-              Log.Global.info_s [%message "PIPE TO CLIENT IS CLOSED"]);
           match Hashtbl.find state.tournaments tournament_id with
           | None ->
               let%bind () =
