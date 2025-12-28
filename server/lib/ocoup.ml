@@ -198,7 +198,6 @@ module Server = struct
                 (Protocol.Tournament_results.create_response ~scores
                    ~results:protocol_results)
             in
-
             `Response
               ( Cohttp.Response.make ~status:`OK ~headers (),
                 Cohttp_async.Body.of_string response_body )
@@ -215,135 +214,132 @@ module Server = struct
         Log.Global.error_s [%message "Error running game" (e : Exn.t)];
         return ()
 
-  let run_server ~port =
-    let non_ws_request ~body:_ _inet _request =
-      Lazy.force not_found_response |> return
-    in
-    let ws_handler f =
-      Cohttp_async_websocket.Server.create ~non_ws_request
-        ~should_process_request:(fun _inet _header ~is_websocket_request:_ ->
-          Ok ())
-        (fun ~inet:_ ~subprotocol:_ _request ->
-          Cohttp_async_websocket.Server.On_connection.create f |> return)
-    in
-    let updates_ws_handler ~updates_reader =
-      ws_handler (fun websocket ->
-          let _reader, writer = Websocket.pipes websocket in
-          Pipe.transfer_id updates_reader writer)
-    in
-    let player_ws_handler =
-      ws_handler (fun websocket ->
-          let reader, writer = Websocket.pipes websocket in
-          let%bind game_state =
-            Game_state.init
-              [
-                Player_ios.llm ~model:Llm_player_io.gpt_4o;
-                Player_ios.llm ~model:Llm_player_io.o3_mini;
-                (fun player_id ->
-                  let player_io =
-                    Websocket_player_io.create ~player_id ~reader ~writer
-                  in
-                  return
-                    (Player_ios.create (module Websocket_player_io) player_io));
-              ]
-            >>| Or_error.ok_exn
-          in
-          run_game' game_state)
-    in
-    let player_with_updates_ws_handler ~bot_players updates_writer =
-      ws_handler (fun websocket ->
-          let reader, writer = Websocket.pipes websocket in
-          let intermediate_reader, from_game = Pipe.create () in
-          let intermediate_reader_fork_1, intermediate_reader_fork_2 =
-            Pipe.fork intermediate_reader ~pushback_uses:`Both_consumers
-          in
-          don't_wait_for (Pipe.transfer_id intermediate_reader_fork_1 writer);
-          don't_wait_for
-            (Pipe.transfer_id intermediate_reader_fork_2 updates_writer);
-          let bot_player_ios = List.map bot_players ~f:player_io_of_string in
-          let websocket_player_io player_id =
-            let player_io =
-              Websocket_player_io.create ~player_id ~reader ~writer:from_game
+  let non_ws_request ~body:_ _inet _request =
+    Lazy.force not_found_response |> return
+
+  let with_state ~(state : State.t) ~game_id f =
+    match Hashtbl.find state.games game_id with
+    | Some { reader; writer; bot_players } -> f ~reader ~writer ~bot_players
+    | None -> `Response (Lazy.force not_found_response) |> return
+
+  let ws_handler f =
+    Cohttp_async_websocket.Server.create ~non_ws_request
+      ~should_process_request:(fun _inet _header ~is_websocket_request:_ ->
+        Ok ())
+      (fun ~inet:_ ~subprotocol:_ _request ->
+        Cohttp_async_websocket.Server.On_connection.create f |> return)
+
+  let updates_ws_handler ~updates_reader =
+    ws_handler (fun websocket ->
+        let _reader, writer = Websocket.pipes websocket in
+        Pipe.transfer_id updates_reader writer)
+
+  let tournament_register_ws_handler ~(state : State.t) ~tournament_id =
+    ws_handler (fun websocket ->
+        let reader, writer = Websocket.pipes websocket in
+        match Hashtbl.find state.tournaments tournament_id with
+        | None ->
+            let%bind () =
+              Pipe.write writer
+                (Yojson.Safe.to_string
+                   (Protocol.Error_response.create "Tournament not found"))
             in
-            Player_ios.create (module Websocket_player_io) player_io |> return
-          in
-          let%bind game_state =
-            Game_state.init (bot_player_ios @ [ websocket_player_io ])
-            >>| Or_error.ok_exn
-          in
-          run_game' game_state)
-    in
-    let tournament_register_ws_handler ~(state : State.t) ~tournament_id =
-      ws_handler (fun websocket ->
-          let reader, writer = Websocket.pipes websocket in
-          match Hashtbl.find state.tournaments tournament_id with
-          | None ->
+            Pipe.close writer;
+            return ()
+        | Some tournament_data ->
+            if tournament_data.started then (
               let%bind () =
                 Pipe.write writer
                   (Yojson.Safe.to_string
-                     (Protocol.Error_response.create "Tournament not found"))
+                     (Protocol.Error_response.create
+                        "Tournament already started"))
               in
               Pipe.close writer;
-              return ()
-          | Some tournament_data ->
-              if tournament_data.started then (
-                let%bind () =
-                  Pipe.write writer
-                    (Yojson.Safe.to_string
-                       (Protocol.Error_response.create
-                          "Tournament already started"))
+              return ())
+            else
+              let player_id =
+                Tournament.num_players tournament_data.tournament
+                |> Types.Player_id.of_int
+              in
+              let%bind updated_tournament =
+                let player_ios =
+                  Player_ios.create
+                    (module Websocket_player_io)
+                    (Websocket_player_io.create ~player_id ~reader ~writer)
                 in
-                Pipe.close writer;
-                return ())
-              else
-                let next_player_id =
-                  Tournament.num_players tournament_data.tournament
-                in
-                let player_id = Types.Player_id.of_int next_player_id in
+                match
+                  Tournament.register tournament_data.tournament player_ios
+                with
+                | Ok t -> return t
+                | Error e ->
+                    let%bind () =
+                      Pipe.write writer
+                        (Yojson.Safe.to_string
+                           (Protocol.Error_response.create
+                              (Error.to_string_hum e)))
+                    in
+                    Pipe.close writer;
+                    Error.raise e
+              in
+              Hashtbl.set state.tournaments ~key:tournament_id
+                ~data:{ tournament_data with tournament = updated_tournament };
+              let%bind () =
+                Pipe.write writer
+                  (Yojson.Safe.to_string
+                     (Protocol.Tournament_registration_response.registered
+                        ~player_id:(Types.Player_id.to_int player_id)))
+              in
+              Log.Global.info_s
+                [%message
+                  "Registered player for tournament"
+                    (tournament_id : string)
+                    (player_id : Types.Player_id.t)];
+              (* Keep the websocket alive by waiting for it to close *)
+              Pipe.closed writer)
+
+  let player_ws_handler =
+    ws_handler (fun websocket ->
+        let reader, writer = Websocket.pipes websocket in
+        let%bind game_state =
+          Game_state.init
+            [
+              Player_ios.llm ~model:Llm_player_io.gpt_4o;
+              Player_ios.llm ~model:Llm_player_io.o3_mini;
+              (fun player_id ->
                 let player_io =
                   Websocket_player_io.create ~player_id ~reader ~writer
                 in
-                let player_ios_t =
-                  Player_ios.create (module Websocket_player_io) player_io
-                  |> return
-                in
-                let%bind updated_tournament =
-                  let%bind player_ios = player_ios_t in
-                  match
-                    Tournament.register tournament_data.tournament player_ios
-                  with
-                  | Ok t -> return t
-                  | Error e ->
-                      let%bind () =
-                        Pipe.write writer
-                          (Yojson.Safe.to_string
-                             (Protocol.Error_response.create
-                                (Error.to_string_hum e)))
-                      in
-                      Pipe.close writer;
-                      Error.raise e
-                in
-                Hashtbl.set state.tournaments ~key:tournament_id
-                  ~data:{ tournament_data with tournament = updated_tournament };
-                let%bind () =
-                  Pipe.write writer
-                    (Yojson.Safe.to_string
-                       (Protocol.Tournament_registration_response.registered
-                          ~player_id:next_player_id))
-                in
-                Log.Global.info_s
-                  [%message
-                    "Registered player for tournament"
-                      (tournament_id : string)
-                      (player_id : Types.Player_id.t)];
-                (* Keep the websocket alive by waiting for it to close *)
-                Pipe.closed writer)
-    in
-    let with_state ~(state : State.t) ~game_id f =
-      match Hashtbl.find state.games game_id with
-      | Some { reader; writer; bot_players } -> f ~reader ~writer ~bot_players
-      | None -> `Response (Lazy.force not_found_response) |> return
-    in
+                return
+                  (Player_ios.create (module Websocket_player_io) player_io));
+            ]
+          >>| Or_error.ok_exn
+        in
+        run_game' game_state)
+
+  let player_with_updates_ws_handler ~bot_players updates_writer =
+    ws_handler (fun websocket ->
+        let reader, writer = Websocket.pipes websocket in
+        let intermediate_reader, from_game = Pipe.create () in
+        let intermediate_reader_fork_1, intermediate_reader_fork_2 =
+          Pipe.fork intermediate_reader ~pushback_uses:`Both_consumers
+        in
+        don't_wait_for (Pipe.transfer_id intermediate_reader_fork_1 writer);
+        don't_wait_for
+          (Pipe.transfer_id intermediate_reader_fork_2 updates_writer);
+        let bot_player_ios = List.map bot_players ~f:player_io_of_string in
+        let websocket_player_io player_id =
+          let player_io =
+            Websocket_player_io.create ~player_id ~reader ~writer:from_game
+          in
+          Player_ios.create (module Websocket_player_io) player_io |> return
+        in
+        let%bind game_state =
+          Game_state.init (bot_player_ios @ [ websocket_player_io ])
+          >>| Or_error.ok_exn
+        in
+        run_game' game_state)
+
+  let run_server ~port =
     let%bind server =
       let state = State.create () in
       let on_handler_error =
@@ -356,42 +352,42 @@ module Server = struct
         (Tcp.Where_to_listen.of_port port) (fun ~body inet request ->
           Log.Global.info_s [%message (request : Cohttp.Request.t)];
           match
-            ( Cohttp.Request.meth request,
-              Cohttp.Request.uri request |> Uri.path |> Filename.parts )
+            ( Cohttp.Request.uri request |> Uri.path |> Filename.parts,
+              Cohttp.Request.meth request )
           with
-          | `OPTIONS, [ "/"; "games" ] ->
+          | [ "/"; "new_game" ], `GET -> player_ws_handler ~body inet request
+          | [ "/"; "games" ], `OPTIONS ->
               `Response
                 ( Cohttp.Response.make ~status:`OK ~headers (),
                   Cohttp_async.Body.empty )
               |> return
-          | `POST, [ "/"; "games" ] ->
+          | [ "/"; "games" ], `POST ->
               Create_game.handle ~state ~body inet request
-          | `OPTIONS, [ "/"; "tournaments" ] ->
-              `Response
-                ( Cohttp.Response.make ~status:`OK ~headers (),
-                  Cohttp_async.Body.empty )
-              |> return
-          | `POST, [ "/"; "tournaments" ] ->
-              Create_tournament.handle ~state ~body inet request
-          | `GET, [ "/"; "tournaments"; tournament_id; "register" ] ->
-              tournament_register_ws_handler ~state ~tournament_id ~body inet
-                request
-          | `POST, [ "/"; "tournaments"; tournament_id; "start" ] ->
-              Start_tournament.handle ~state ~tournament_id ~body inet request
-          | `OPTIONS, [ "/"; "tournaments"; _tournament_id; "start" ] ->
-              `Response
-                ( Cohttp.Response.make ~status:`OK ~headers (),
-                  Cohttp_async.Body.empty )
-              |> return
-          | `GET, [ "/"; "games"; game_id; "updates" ] ->
+          | [ "/"; "games"; game_id; "updates" ], `GET ->
               with_state ~state ~game_id
                 (fun ~reader ~writer:_ ~bot_players:_ ->
                   updates_ws_handler ~updates_reader:reader ~body inet request)
-          | `GET, [ "/"; "games"; game_id; "player" ] ->
+          | [ "/"; "games"; game_id; "player" ], `GET ->
               with_state ~state ~game_id (fun ~reader:_ ~writer ~bot_players ->
                   player_with_updates_ws_handler ~bot_players writer ~body inet
                     request)
-          | `GET, [ "/"; "new_game" ] -> player_ws_handler ~body inet request
+          | [ "/"; "tournaments" ], `OPTIONS ->
+              `Response
+                ( Cohttp.Response.make ~status:`OK ~headers (),
+                  Cohttp_async.Body.empty )
+              |> return
+          | [ "/"; "tournaments" ], `POST ->
+              Create_tournament.handle ~state ~body inet request
+          | [ "/"; "tournaments"; tournament_id; "register" ], `GET ->
+              tournament_register_ws_handler ~state ~tournament_id ~body inet
+                request
+          | [ "/"; "tournaments"; tournament_id; "start" ], `POST ->
+              Start_tournament.handle ~state ~tournament_id ~body inet request
+          | [ "/"; "tournaments"; _tournament_id; "start" ], `OPTIONS ->
+              `Response
+                ( Cohttp.Response.make ~status:`OK ~headers (),
+                  Cohttp_async.Body.empty )
+              |> return
           | _ -> `Response (Lazy.force not_found_response) |> return)
     in
     let%bind () = Cohttp_async.Server.close_finished server in
