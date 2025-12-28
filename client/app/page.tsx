@@ -30,7 +30,9 @@ export default function Home() {
   };
 
   useEffect(() => {
-    scrollToBottom();
+    if (events.length > 0) {
+      scrollToBottom();
+    }
   }, [events]);
 
   const handleBotToggle = (botType: string) => {
