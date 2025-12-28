@@ -8,11 +8,20 @@ import { BotHelp } from './components/BotHelp';
 
 const server_host = "ocoup-server-production.up.railway.app"
 
+const BOT_TYPES = [
+  { value: 'gpt-4o', label: 'GPT-4o', description: 'OpenAI GPT-4o' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o-mini', description: 'OpenAI GPT-4o-mini' },
+  { value: 'o3-mini', label: 'O3-mini', description: 'OpenAI O3-mini' },
+  { value: 'gemini-2-5', label: 'Gemini 2.5', description: 'Google Gemini 2.5' },
+];
+
 export default function Home() {
   const [events, setEvents] = useState<Array<{type: 'sent' | 'received' | 'system', message: ServerMessage | ClientMessage | string}>>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isBotGame, setIsBotGame] = useState(false);
   const [playerUrl, setPlayerUrl] = useState<string | null>(null);
+  const [showBotSetup, setShowBotSetup] = useState(false);
+  const [selectedBots, setSelectedBots] = useState<string[]>(['gpt-4o', 'o3-mini']);
   const wsRef = useRef<WebSocket | null>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
@@ -24,41 +33,50 @@ export default function Home() {
     scrollToBottom();
   }, [events]);
 
+  const handleBotToggle = (botType: string) => {
+    setSelectedBots((prev) =>
+      prev.includes(botType) ? prev.filter((b) => b !== botType) : [...prev, botType]
+    );
+  };
+
   const createBotGame = async () => {
     try {
-      setEvents(prev => [...prev, { type: 'system', message: 'Creating a new bot game...' }]);
-      
+      const botList = selectedBots.length > 0 ? selectedBots : ['gpt-4o', 'o3-mini'];
+      setEvents(prev => [...prev, { type: 'system', message: `Creating a new bot game with: ${botList.join(', ')}...` }]);
+      setShowBotSetup(false);
+
       const response = await fetch(`https://${server_host}/games`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({ bot_players: botList })
       });
-      
+
       if (!response.ok) {
         throw new Error(`Failed to create game: ${response.status} ${response.statusText}`);
       }
-      
+
       const gameData = await response.json();
       const updatesUrl = `wss://${server_host}${gameData.updates_url}`;
       const botPlayerUrl = `wss://${server_host}${gameData.player_url}`;
-      
+
       setPlayerUrl(botPlayerUrl);
       setIsBotGame(true);
-      
+
       // Add the player URL to the events for the user to see
-      setEvents(prev => [...prev, { 
-        type: 'system', 
-        message: `Bot game created! Connect your bot to: ${botPlayerUrl}` 
+      setEvents(prev => [...prev, {
+        type: 'system',
+        message: `Bot game created with ${gameData.num_bot_players} bot(s)! Connect your bot to: ${botPlayerUrl}`
       }]);
-      
+
       // Connect to the updates WebSocket
       connectWebSocket(updatesUrl);
-      
+
     } catch (error) {
-      setEvents(prev => [...prev, { 
-        type: 'system', 
-        message: `Error creating bot game: ${error instanceof Error ? error.message : String(error)}` 
+      setEvents(prev => [...prev, {
+        type: 'system',
+        message: `Error creating bot game: ${error instanceof Error ? error.message : String(error)}`
       }]);
     }
   };
@@ -132,7 +150,7 @@ export default function Home() {
           <h1 className="title">COUP-O-MATIC 3000</h1>
           <div className="flex items-center gap-3">
             <div className="mcm-dial"></div>
-            {!isConnected && (
+            {!isConnected && !showBotSetup && (
               <div className="flex gap-2">
                 <button
                   onClick={() => connectWebSocket()}
@@ -141,12 +159,20 @@ export default function Home() {
                   {events.length > 0 ? 'Reconnect' : 'Start Game'}
                 </button>
                 <button
-                  onClick={createBotGame}
+                  onClick={() => setShowBotSetup(true)}
                   className="btn"
                 >
                   Bot Game
                 </button>
               </div>
+            )}
+            {showBotSetup && (
+              <button
+                onClick={() => setShowBotSetup(false)}
+                className="btn"
+              >
+                Cancel
+              </button>
             )}
             {isConnected && (
               <div className="flex items-center gap-2">
@@ -158,6 +184,87 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {showBotSetup && (
+          <div className="mcm-panel">
+            <h2 className="font-display text-xl text-mcm-navy mb-3 pb-2 border-b-2 border-mcm-mustard">BOT GAME SETUP</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-mcm-navy mb-3 uppercase tracking-wider">
+                  Select Bot Opponents
+                </label>
+                <div className="space-y-2">
+                  {BOT_TYPES.map((bot) => (
+                    <label
+                      key={bot.value}
+                      className="flex items-center gap-3 p-3 bg-white border-2 border-mcm-mustard rounded-xl cursor-pointer hover:border-mcm-coral transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedBots.includes(bot.value)}
+                        onChange={() => handleBotToggle(bot.value)}
+                        className="w-4 h-4 rounded-sm border-mcm-mustard text-mcm-coral focus:ring-mcm-coral"
+                      />
+                      <div className="flex-1">
+                        <div className="text-mcm-navy font-bold">{bot.label}</div>
+                        <div className="text-sm text-mcm-brown">{bot.description}</div>
+                      </div>
+                      {selectedBots.includes(bot.value) && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setSelectedBots((prev) => [...prev, bot.value]);
+                            }}
+                            className="text-mcm-coral hover:text-mcm-orange font-bold text-sm px-2 py-1"
+                          >
+                            +
+                          </button>
+                          <span className="text-mcm-navy font-bold text-sm">
+                            {selectedBots.filter((b) => b === bot.value).length}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              const index = selectedBots.lastIndexOf(bot.value);
+                              if (index !== -1) {
+                                setSelectedBots((prev) => [
+                                  ...prev.slice(0, index),
+                                  ...prev.slice(index + 1),
+                                ]);
+                              }
+                            }}
+                            className="text-mcm-coral hover:text-mcm-orange font-bold text-sm px-2 py-1"
+                          >
+                            -
+                          </button>
+                        </div>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="pt-4 border-t-2 border-mcm-mustard">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-mcm-navy font-bold uppercase tracking-wider">Total Bots:</span>
+                  <span className="text-2xl font-bold text-mcm-navy">{selectedBots.length}</span>
+                </div>
+                <p className="text-sm text-mcm-brown mb-4">
+                  You will connect as an additional player via WebSocket.
+                </p>
+                <button
+                  onClick={createBotGame}
+                  disabled={selectedBots.length === 0}
+                  className="w-full btn"
+                >
+                  Create Bot Game
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="content">
           <div className="mcm-panel">
@@ -214,7 +321,7 @@ export default function Home() {
               <div className="mcm-dial"></div>
               <div className="grow flex justify-between items-center">
                 <div className="text-xs uppercase tracking-wider text-mcm-navy font-bold">Signal Strength</div>
-                {!isConnected && events.length > 0 && (
+                {!isConnected && events.length > 0 && !showBotSetup && (
                   <div className="flex gap-2">
                     <button
                       onClick={() => connectWebSocket()}
@@ -223,7 +330,7 @@ export default function Home() {
                       Reconnect
                     </button>
                     <button
-                      onClick={createBotGame}
+                      onClick={() => setShowBotSetup(true)}
                       className="btn-small"
                     >
                       Bot Game

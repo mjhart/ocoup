@@ -37,8 +37,14 @@ module Server = struct
   module State = struct
     type tournament_data = { tournament : Tournament.t; started : bool }
 
+    type game_data = {
+      reader : string Pipe.Reader.t;
+      writer : string Pipe.Writer.t;
+      bot_players : string list;
+    }
+
     type t = {
-      games : (string Pipe.Reader.t * string Pipe.Writer.t) String.Table.t;
+      games : game_data String.Table.t;
       tournaments : tournament_data String.Table.t;
     }
 
@@ -52,9 +58,9 @@ module Server = struct
         next_game_id := id + 1;
         [%string "game-%{id#Int}"]
 
-    let add_game ~state ~reader ~writer =
+    let add_game ~state ~reader ~writer ~bot_players =
       let game_id = get_game_id () in
-      Hashtbl.set state.games ~key:game_id ~data:(reader, writer);
+      Hashtbl.set state.games ~key:game_id ~data:{ reader; writer; bot_players };
       game_id
 
     let get_tournament_id =
@@ -77,11 +83,18 @@ module Server = struct
         Cohttp_async.Body.of_string "Not found" )
 
   module Create_game = struct
-    let handle ~state ~body:_ _inet _request =
+    let handle ~state ~body _inet _request =
+      let%bind body_string = Cohttp_async.Body.to_string body in
+      let json = Yojson.Safe.from_string body_string in
+      let { Protocol.Create_game_request.bot_players } =
+        Protocol.Create_game_request.of_yojson json
+      in
       let reader, writer = Pipe.create () in
-      let game_id = State.add_game ~state ~reader ~writer in
+      let game_id = State.add_game ~state ~reader ~writer ~bot_players in
       let body =
-        Yojson.Safe.to_string (Protocol.Create_game_response.create ~game_id)
+        Yojson.Safe.to_string
+          (Protocol.Create_game_response.create ~game_id
+             ~num_bot_players:(List.length bot_players))
       in
       `Response
         ( Cohttp.Response.make ~status:`OK ~headers (),
@@ -234,7 +247,7 @@ module Server = struct
               Log.Global.error_s [%message "Error running game" (e : Exn.t)];
               return ())
     in
-    let player_with_updates_ws_handler updates_writer =
+    let player_with_updates_ws_handler ~bot_players updates_writer =
       ws_handler (fun websocket ->
           let reader, writer = Websocket.pipes websocket in
           let intermediate_reader, from_game = Pipe.create () in
@@ -244,20 +257,15 @@ module Server = struct
           don't_wait_for (Pipe.transfer_id intermediate_reader_fork_1 writer);
           don't_wait_for
             (Pipe.transfer_id intermediate_reader_fork_2 updates_writer);
-
+          let bot_player_ios = List.map bot_players ~f:player_io_of_string in
+          let websocket_player_io player_id =
+            let player_io =
+              Websocket_player_io.create ~player_id ~reader ~writer:from_game
+            in
+            Player_ios.create (module Websocket_player_io) player_io |> return
+          in
           let%bind game_state =
-            Game_state.init
-              [
-                Player_ios.llm ~model:Llm_player_io.gpt_4o;
-                Player_ios.llm ~model:Llm_player_io.o3_mini;
-                (fun player_id ->
-                  let player_io =
-                    Websocket_player_io.create ~player_id ~reader
-                      ~writer:from_game
-                  in
-                  Player_ios.create (module Websocket_player_io) player_io
-                  |> return);
-              ]
+            Game_state.init (bot_player_ios @ [ websocket_player_io ])
             >>| Or_error.ok_exn
           in
           match%bind
@@ -339,7 +347,7 @@ module Server = struct
     in
     let with_state ~(state : State.t) ~game_id f =
       match Hashtbl.find state.games game_id with
-      | Some (reader, writer) -> f ~reader ~writer
+      | Some { reader; writer; bot_players } -> f ~reader ~writer ~bot_players
       | None -> `Response (Lazy.force not_found_response) |> return
     in
     let%bind server =
@@ -382,11 +390,13 @@ module Server = struct
                   Cohttp_async.Body.empty )
               |> return
           | `GET, [ "/"; "games"; game_id; "updates" ] ->
-              with_state ~state ~game_id (fun ~reader ~writer:_ ->
+              with_state ~state ~game_id
+                (fun ~reader ~writer:_ ~bot_players:_ ->
                   updates_ws_handler ~updates_reader:reader ~body inet request)
           | `GET, [ "/"; "games"; game_id; "player" ] ->
-              with_state ~state ~game_id (fun ~reader:_ ~writer ->
-                  player_with_updates_ws_handler writer ~body inet request)
+              with_state ~state ~game_id (fun ~reader:_ ~writer ~bot_players ->
+                  player_with_updates_ws_handler ~bot_players writer ~body inet
+                    request)
           | `GET, [ "/"; "new_game" ] -> player_ws_handler ~body inet request
           | _ -> `Response (Lazy.force not_found_response) |> return)
     in

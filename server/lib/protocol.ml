@@ -292,13 +292,31 @@ module Player_responded_notification = struct
       ]
 end
 
+module Create_game_request = struct
+  type t = { bot_players : string list }
+
+  let of_yojson : Yojson.Safe.t -> t = function
+    | `Assoc fields ->
+        let bot_players =
+          match List.Assoc.find fields ~equal:String.equal "bot_players" with
+          | Some (`List bots) ->
+              List.filter_map bots ~f:(function
+                | `String s -> Some s
+                | _ -> None)
+          | _ -> []
+        in
+        { bot_players }
+    | _ -> { bot_players = [] }
+end
+
 module Create_game_response = struct
-  let create ~game_id =
+  let create ~game_id ~num_bot_players =
     `Assoc
       [
         ("game_id", `String game_id);
         ("updates_url", `String [%string "/games/%{game_id}/updates"]);
         ("player_url", `String [%string "/games/%{game_id}/player"]);
+        ("num_bot_players", `Int num_bot_players);
       ]
 end
 

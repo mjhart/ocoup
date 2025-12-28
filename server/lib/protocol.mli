@@ -133,9 +133,16 @@ module Player_responded_notification : sig
   val create_query : Player_id.t -> Yojson.Safe.t
 end
 
+(** Server API: Create game request parsing *)
+module Create_game_request : sig
+  type t = { bot_players : string list }
+
+  val of_yojson : Yojson.Safe.t -> t
+end
+
 (** Server API: Create game response *)
 module Create_game_response : sig
-  val create : game_id:string -> Yojson.Safe.t
+  val create : game_id:string -> num_bot_players:int -> Yojson.Safe.t
 end
 
 (** Server API: Create tournament request parsing *)
