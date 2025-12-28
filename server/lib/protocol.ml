@@ -39,8 +39,8 @@ module Action = struct
     | `Assoc [ ("type", `String "Income") ] -> `Income
     | `Assoc [ ("type", `String "Tax") ] -> `Tax
     | `Assoc [ ("type", `String "Foreign_aid") ] -> `Foreign_aid
-    | `Assoc
-        [ ("type", `String "Assassinate"); ("player_id", `Int player_id) ] ->
+    | `Assoc [ ("type", `String "Assassinate"); ("player_id", `Int player_id) ]
+      ->
         `Assassinate (Player_id.of_int player_id)
     | `Assoc [ ("type", `String "Coup"); ("player_id", `Int player_id) ] ->
         `Coup (Player_id.of_int player_id)
@@ -77,8 +77,7 @@ module Challengable = struct
             ("type", `String "Steal");
             ("player_id", `Int (Player_id.to_int player_id));
           ]
-    | `Block_assassination ->
-        `Assoc [ ("type", `String "Block_assassination") ]
+    | `Block_assassination -> `Assoc [ ("type", `String "Block_assassination") ]
     | `Block_steal blocking_card ->
         let blocking_card =
           match blocking_card with
@@ -104,21 +103,15 @@ module Visible_game_state = struct
           `List
             [
               `Assoc
-                [
-                  ("card", Card.yojson_of_t card_1); ("revealed", `Bool false);
-                ];
+                [ ("card", Card.yojson_of_t card_1); ("revealed", `Bool false) ];
               `Assoc
-                [
-                  ("card", Card.yojson_of_t card_2); ("revealed", `Bool false);
-                ];
+                [ ("card", Card.yojson_of_t card_2); ("revealed", `Bool false) ];
             ]
       | Hand.One { hidden; revealed } ->
           `List
             [
               `Assoc
-                [
-                  ("card", Card.yojson_of_t hidden); ("revealed", `Bool false);
-                ];
+                [ ("card", Card.yojson_of_t hidden); ("revealed", `Bool false) ];
               `Assoc
                 [
                   ("card", Card.yojson_of_t revealed); ("revealed", `Bool true);
@@ -149,8 +142,7 @@ module Game_start = struct
     `Assoc
       [
         ("type", `String "Game_start");
-        ( "visible_game_state",
-          Visible_game_state.yojson_of_t visible_game_state );
+        ("visible_game_state", Visible_game_state.yojson_of_t visible_game_state);
         ("self_player_id", Player_id.yojson_of_t player_id);
       ]
 end
@@ -160,8 +152,7 @@ module Choose_action = struct
     `Assoc
       [
         ("type", `String "Choose_action");
-        ( "visible_game_state",
-          Visible_game_state.yojson_of_t visible_game_state );
+        ("visible_game_state", Visible_game_state.yojson_of_t visible_game_state);
       ]
 
   let response_of_yojson = Action.t_of_yojson
@@ -173,8 +164,7 @@ module Choose_assasination_response = struct
       [
         ("type", `String "Choose_assasination_response");
         ("player_id", Player_id.yojson_of_t player_id);
-        ( "visible_game_state",
-          Visible_game_state.yojson_of_t visible_game_state );
+        ("visible_game_state", Visible_game_state.yojson_of_t visible_game_state);
       ]
 
   let response_of_yojson = Allow_or_block.t_of_yojson
@@ -185,8 +175,7 @@ module Choose_foreign_aid_response = struct
     `Assoc
       [
         ("type", `String "Choose_foreign_aid_response");
-        ( "visible_game_state",
-          Visible_game_state.yojson_of_t visible_game_state );
+        ("visible_game_state", Visible_game_state.yojson_of_t visible_game_state);
       ]
 
   let response_of_yojson = Allow_or_block.t_of_yojson
@@ -200,8 +189,7 @@ module Choose_steal_response = struct
       [
         ("type", `String "Choose_steal_response");
         ("player_id", Player_id.yojson_of_t stealing_player_id);
-        ( "visible_game_state",
-          Visible_game_state.yojson_of_t visible_game_state );
+        ("visible_game_state", Visible_game_state.yojson_of_t visible_game_state);
       ]
 
   let response_of_yojson : Yojson.Safe.t -> response = function
@@ -219,8 +207,7 @@ module Choose_cards_to_return = struct
       [
         ("type", `String "Choose_cards_to_return");
         ("cards", `List (List.map ~f:Card.yojson_of_t cards));
-        ( "visible_game_state",
-          Visible_game_state.yojson_of_t visible_game_state );
+        ("visible_game_state", Visible_game_state.yojson_of_t visible_game_state);
       ]
 
   let response_of_yojson = function
@@ -236,8 +223,7 @@ module Reveal_card = struct
         ("type", `String "Reveal_card");
         ("card_1", Card.yojson_of_t card_1);
         ("card_2", Card.yojson_of_t card_2);
-        ( "visible_game_state",
-          Visible_game_state.yojson_of_t visible_game_state );
+        ("visible_game_state", Visible_game_state.yojson_of_t visible_game_state);
       ]
 
   let response_of_yojson = function
@@ -253,8 +239,7 @@ module Offer_challenge = struct
         ("type", `String "Offer_challenge");
         ("acting_player_id", Player_id.yojson_of_t acting_player_id);
         ("action", Challengable.yojson_of_t challengable);
-        ( "visible_game_state",
-          Visible_game_state.yojson_of_t visible_game_state );
+        ("visible_game_state", Visible_game_state.yojson_of_t visible_game_state);
       ]
 
   let response_of_yojson = function
@@ -352,8 +337,7 @@ end
 
 module Tournament_registration_response = struct
   let registered ~player_id =
-    `Assoc
-      [ ("status", `String "registered"); ("player_id", `Int player_id) ]
+    `Assoc [ ("status", `String "registered"); ("player_id", `Int player_id) ]
 end
 
 module Tournament_results = struct

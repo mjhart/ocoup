@@ -2,7 +2,8 @@ open! Core
 open Types
 
 (** Protocol module for JSON serialization/deserialization of game messages.
-    This module defines the wire format for communication between server and clients. *)
+    This module defines the wire format for communication between server and
+    clients. *)
 
 (** JSON conversion for Card type *)
 module Card : sig
@@ -146,8 +147,7 @@ end
 
 (** Server API: Create tournament response *)
 module Create_tournament_response : sig
-  val create :
-    tournament_id:string -> num_bot_players:int -> Yojson.Safe.t
+  val create : tournament_id:string -> num_bot_players:int -> Yojson.Safe.t
 end
 
 (** Server API: Tournament registration response *)
@@ -162,19 +162,18 @@ module Tournament_results : sig
     | Completed of { winners : Player_id.t list; eliminated : Player_id.t list }
     | Error of string
 
-  (** Convert a game result to JSON *)
   val game_result_to_yojson : game_idx:int -> game_result -> Yojson.Safe.t
+  (** Convert a game result to JSON *)
 
+  val results_to_yojson : game_result list list -> Yojson.Safe.t
   (** Convert tournament results to JSON *)
-  val results_to_yojson :
-    game_result list list -> Yojson.Safe.t
 
-  (** Convert scores map to JSON *)
   val scores_to_yojson : int Player_id.Map.t -> Yojson.Safe.t
+  (** Convert scores map to JSON *)
 
-  (** Create full start tournament response *)
   val create_response :
     scores:int Player_id.Map.t -> results:game_result list list -> Yojson.Safe.t
+  (** Create full start tournament response *)
 end
 
 (** Server API: Error response *)

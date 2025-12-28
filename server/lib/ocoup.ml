@@ -26,6 +26,14 @@ let player_io_of_string = function
   | unrecognized -> failwith (sprintf "Unrecognized player io: %s" unrecognized)
 
 module Server = struct
+  let headers =
+    Cohttp.Header.of_list
+      [
+        ("Access-Control-Allow-Origin", "*");
+        ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+        ("Access-Control-Allow-Headers", "Content-Type");
+      ]
+
   module State = struct
     type tournament_data = { tournament : Tournament.t; started : bool }
 
@@ -75,14 +83,6 @@ module Server = struct
       let body =
         Yojson.Safe.to_string (Protocol.Create_game_response.create ~game_id)
       in
-      let headers =
-        Cohttp.Header.of_list
-          [
-            ("Access-Control-Allow-Origin", "*");
-            ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-            ("Access-Control-Allow-Headers", "Content-Type");
-          ]
-      in
       `Response
         ( Cohttp.Response.make ~status:`OK ~headers (),
           Cohttp_async.Body.of_string body )
@@ -103,14 +103,14 @@ module Server = struct
           ~f:(fun tournament bot_player_string ->
             let next_player_id = Tournament.num_players tournament in
             let player_id = Types.Player_id.of_int next_player_id in
-            Deferred.Or_error.bind
-              (Deferred.Or_error.try_with (fun () ->
-                   let player_io_factory =
-                     player_io_of_string bot_player_string
-                   in
-                   player_io_factory player_id))
-              ~f:(fun player_ios ->
-                Tournament.register tournament player_ios |> Deferred.return))
+            let%bind.Deferred.Or_error player_ios =
+              Deferred.Or_error.try_with (fun () ->
+                  let player_io_factory =
+                    player_io_of_string bot_player_string
+                  in
+                  player_io_factory player_id)
+            in
+            Tournament.register tournament player_ios |> Deferred.return)
         >>| Or_error.ok_exn
       in
       let tournament_id = State.add_tournament ~state ~tournament in
@@ -118,14 +118,6 @@ module Server = struct
         Yojson.Safe.to_string
           (Protocol.Create_tournament_response.create ~tournament_id
              ~num_bot_players:(List.length bot_players))
-      in
-      let headers =
-        Cohttp.Header.of_list
-          [
-            ("Access-Control-Allow-Origin", "*");
-            ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-            ("Access-Control-Allow-Headers", "Content-Type");
-          ]
       in
       `Response
         ( Cohttp.Response.make ~status:`OK ~headers (),
@@ -171,15 +163,15 @@ module Server = struct
                   List.map round ~f:(fun game_result ->
                       match game_result with
                       | Ok game_state ->
-                          let Game.Game_state.
-                                { players; eliminated_players; _ } =
+                          let Game.Game_state.{ players; eliminated_players; _ }
+                              =
                             game_state
                           in
                           Protocol.Tournament_results.Completed
                             {
                               winners =
-                                List.map players ~f:(fun Game.Player.{ id; _ } ->
-                                    id);
+                                List.map players
+                                  ~f:(fun Game.Player.{ id; _ } -> id);
                               eliminated =
                                 List.rev_map eliminated_players
                                   ~f:(fun Game.Player.{ id; _ } -> id);
@@ -193,14 +185,7 @@ module Server = struct
                 (Protocol.Tournament_results.create_response ~scores
                    ~results:protocol_results)
             in
-            let headers =
-              Cohttp.Header.of_list
-                [
-                  ("Access-Control-Allow-Origin", "*");
-                  ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-                  ("Access-Control-Allow-Headers", "Content-Type");
-                ]
-            in
+
             `Response
               ( Cohttp.Response.make ~status:`OK ~headers (),
                 Cohttp_async.Body.of_string response_body )
@@ -226,7 +211,6 @@ module Server = struct
     let player_ws_handler =
       ws_handler (fun websocket ->
           let reader, writer = Websocket.pipes websocket in
-
           let%bind game_state =
             Game_state.init
               [
@@ -358,7 +342,6 @@ module Server = struct
       | Some (reader, writer) -> f ~reader ~writer
       | None -> `Response (Lazy.force not_found_response) |> return
     in
-
     let%bind server =
       let state = State.create () in
       let on_handler_error =
@@ -375,14 +358,6 @@ module Server = struct
               Cohttp.Request.uri request |> Uri.path |> Filename.parts )
           with
           | `OPTIONS, [ "/"; "games" ] ->
-              let headers =
-                Cohttp.Header.of_list
-                  [
-                    ("Access-Control-Allow-Origin", "*");
-                    ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-                    ("Access-Control-Allow-Headers", "Content-Type");
-                  ]
-              in
               `Response
                 ( Cohttp.Response.make ~status:`OK ~headers (),
                   Cohttp_async.Body.empty )
@@ -390,14 +365,6 @@ module Server = struct
           | `POST, [ "/"; "games" ] ->
               Create_game.handle ~state ~body inet request
           | `OPTIONS, [ "/"; "tournaments" ] ->
-              let headers =
-                Cohttp.Header.of_list
-                  [
-                    ("Access-Control-Allow-Origin", "*");
-                    ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-                    ("Access-Control-Allow-Headers", "Content-Type");
-                  ]
-              in
               `Response
                 ( Cohttp.Response.make ~status:`OK ~headers (),
                   Cohttp_async.Body.empty )
@@ -409,15 +376,7 @@ module Server = struct
                 request
           | `POST, [ "/"; "tournaments"; tournament_id; "start" ] ->
               Start_tournament.handle ~state ~tournament_id ~body inet request
-              | `OPTIONS, [ "/"; "tournaments"; _tournament_id; "start" ] ->
-              let headers =
-                Cohttp.Header.of_list
-                  [
-                    ("Access-Control-Allow-Origin", "*");
-                    ("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-                    ("Access-Control-Allow-Headers", "Content-Type");
-                  ]
-              in
+          | `OPTIONS, [ "/"; "tournaments"; _tournament_id; "start" ] ->
               `Response
                 ( Cohttp.Response.make ~status:`OK ~headers (),
                   Cohttp_async.Body.empty )
