@@ -11,7 +11,6 @@ interface TournamentData {
   tournamentId: string;
   numHumanPlayers: number;
   botPlayers: string[];
-  serverUrl: string;
 }
 
 interface TournamentResults {

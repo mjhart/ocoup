@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { handleGameMessage } from '../utils/gameMessageHandler';
+import { SERVER_URL, getWebSocketUrl } from '../../config';
 
 interface TournamentResults {
   results: Array<{
@@ -22,7 +23,6 @@ interface TournamentProgressProps {
     tournamentId: string;
     numHumanPlayers: number;
     botPlayers: string[];
-    serverUrl: string;
   };
   onRegistrationComplete: () => void;
   onTournamentComplete: (results: TournamentResults) => void;
@@ -65,7 +65,7 @@ export default function TournamentProgress({
 
     try {
       const response = await fetch(
-        `${tournamentData.serverUrl}/tournaments/${tournamentData.tournamentId}/start`,
+        `${SERVER_URL}/tournaments/${tournamentData.tournamentId}/start`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -92,7 +92,7 @@ export default function TournamentProgress({
     } finally {
       setIsStarting(false);
     }
-  }, [tournamentData.serverUrl, tournamentData.tournamentId, onTournamentComplete, onError]);
+  }, [tournamentData.tournamentId, onTournamentComplete, onError]);
 
   const registerPlayer = useCallback((wsUrl: string, playerNum: number): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -169,14 +169,13 @@ export default function TournamentProgress({
   }, [tournamentData.tournamentId, tournamentData.numHumanPlayers, onRegistrationComplete, startTournament]);
 
   const registerAllPlayers = useCallback(async () => {
-    const wsProtocol = tournamentData.serverUrl.startsWith('https') ? 'wss' : 'ws';
-    const wsUrl = tournamentData.serverUrl.replace(/^https?/, wsProtocol);
+    const wsUrl = getWebSocketUrl();
 
     for (let i = 0; i < tournamentData.numHumanPlayers; i++) {
       await registerPlayer(wsUrl, i);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-  }, [tournamentData.serverUrl, tournamentData.numHumanPlayers, registerPlayer]);
+  }, [tournamentData.numHumanPlayers, registerPlayer]);
 
   useEffect(() => {
     if (hasRegistered.current) {

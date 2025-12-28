@@ -5,8 +5,7 @@ import type { ServerMessage, ClientMessage } from './types';
 import { ServerMessage as ServerMessageComponent } from './components/ServerMessage';
 import { ResponseForm } from './components/ResponseForm';
 import { BotHelp } from './components/BotHelp';
-
-const server_host = "ocoup-server-production.up.railway.app"
+import { SERVER_URL, WS_BASE_URL } from './config';
 
 const BOT_TYPES = [
   { value: 'gpt-4o', label: 'GPT-4o', description: 'OpenAI GPT-4o' },
@@ -47,7 +46,7 @@ export default function Home() {
       setEvents(prev => [...prev, { type: 'system', message: `Creating a new bot game with: ${botList.join(', ')}...` }]);
       setShowBotSetup(false);
 
-      const response = await fetch(`https://${server_host}/games`, {
+      const response = await fetch(`${SERVER_URL}/games`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -60,8 +59,8 @@ export default function Home() {
       }
 
       const gameData = await response.json();
-      const updatesUrl = `wss://${server_host}${gameData.updates_url}`;
-      const botPlayerUrl = `wss://${server_host}${gameData.player_url}`;
+      const updatesUrl = `${WS_BASE_URL}${gameData.updates_url}`;
+      const botPlayerUrl = `${WS_BASE_URL}${gameData.player_url}`;
 
       setPlayerUrl(botPlayerUrl);
       setIsBotGame(true);
@@ -83,7 +82,7 @@ export default function Home() {
     }
   };
 
-  const connectWebSocket = (url: string = `wss://${server_host}/new_game`) => {
+  const connectWebSocket = (url: string = `${WS_BASE_URL}/new_game`) => {
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close();

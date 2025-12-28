@@ -1,13 +1,13 @@
 'use client';
 
 import { useState } from 'react';
+import { SERVER_URL } from '../../config';
 
 interface TournamentSetupProps {
   onComplete: (data: {
     tournamentId: string;
     numHumanPlayers: number;
     botPlayers: string[];
-    serverUrl: string;
   }) => void;
   onError: (error: string) => void;
 }
@@ -19,7 +19,6 @@ const BOT_TYPES = [
 ];
 
 export default function TournamentSetup({ onComplete, onError }: TournamentSetupProps) {
-  const [serverUrl, setServerUrl] = useState('http://localhost:9000');
   const [numHumanPlayers, setNumHumanPlayers] = useState(4);
   const [selectedBots, setSelectedBots] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
@@ -49,7 +48,7 @@ export default function TournamentSetup({ onComplete, onError }: TournamentSetup
         requestBody.bot_players = selectedBots;
       }
 
-      const response = await fetch(`${serverUrl}/tournaments`, {
+      const response = await fetch(`${SERVER_URL}/tournaments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
@@ -65,7 +64,6 @@ export default function TournamentSetup({ onComplete, onError }: TournamentSetup
         tournamentId: data.tournament_id,
         numHumanPlayers,
         botPlayers: selectedBots,
-        serverUrl,
       });
     } catch (error) {
       onError(error instanceof Error ? error.message : 'Failed to create tournament');
@@ -78,19 +76,6 @@ export default function TournamentSetup({ onComplete, onError }: TournamentSetup
       <h2 className="font-display text-xl text-mcm-navy mb-3 pb-2 border-b-2 border-mcm-mustard">Tournament Setup</h2>
 
       <div className="space-y-6">
-        <div>
-          <label className="block text-sm font-bold text-mcm-navy mb-2 uppercase tracking-wider">
-            Server URL
-          </label>
-          <input
-            type="text"
-            value={serverUrl}
-            onChange={(e) => setServerUrl(e.target.value)}
-            className="w-full bg-white border-2 border-mcm-mustard rounded-xl px-4 py-2 text-mcm-navy focus:outline-hidden focus:border-mcm-coral focus:shadow-mcm"
-            placeholder="http://localhost:9000"
-          />
-        </div>
-
         <div>
           <label className="block text-sm font-bold text-mcm-navy mb-2 uppercase tracking-wider">
             Number of Human Players
