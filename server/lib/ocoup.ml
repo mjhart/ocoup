@@ -235,28 +235,21 @@ module Server = struct
         Pipe.transfer_id updates_reader writer)
 
   let tournament_register_ws_handler ~(state : State.t) ~tournament_id =
-    ws_handler (fun websocket ->
-        let reader, writer = Websocket.pipes websocket in
-        match Hashtbl.find state.tournaments tournament_id with
-        | None ->
-            let%bind () =
-              Pipe.write writer
-                (Yojson.Safe.to_string
-                   (Protocol.Error_response.create "Tournament not found"))
-            in
-            Pipe.close writer;
-            return ()
-        | Some tournament_data ->
-            if tournament_data.started then (
-              let%bind () =
-                Pipe.write writer
-                  (Yojson.Safe.to_string
-                     (Protocol.Error_response.create
-                        "Tournament already started"))
-              in
-              Pipe.close writer;
-              return ())
-            else
+    match Hashtbl.find state.tournaments tournament_id with
+    | None ->
+        fun ~body:_ _inet _request ->
+          `Response (force not_found_response) |> return
+    | Some tournament_data ->
+        if tournament_data.started then fun ~body:_ _inet _request ->
+          `Response
+            ( Cohttp.Response.make ~status:`Bad_request (),
+              Yojson.Safe.to_string
+                (Protocol.Error_response.create "Tournament already started")
+              |> Cohttp_async.Body.of_string )
+          |> return
+        else
+          ws_handler (fun websocket ->
+              let reader, writer = Websocket.pipes websocket in
               let player_id =
                 Tournament.num_players tournament_data.tournament
                 |> Types.Player_id.of_int
