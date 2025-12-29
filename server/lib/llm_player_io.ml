@@ -4,8 +4,8 @@ open Types
 
 type role = Developer | Assistant | User [@@deriving sexp_of]
 
-let gpt_4o = "gpt-4o"
-let gpt_4o_mini = "gpt-4o-mini"
+let gpt_5_mini = "gpt-5-mini"
+let gpt_5_nano = "gpt-5-nano"
 
 (* let o1_mini = "o1-mini" *)
 let o3_mini = "o3-mini"

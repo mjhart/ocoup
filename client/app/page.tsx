@@ -8,8 +8,8 @@ import { BotHelp } from './components/BotHelp';
 import { SERVER_URL, WS_BASE_URL } from './config';
 
 const BOT_TYPES = [
-  { value: 'gpt-4o', label: 'GPT-4o', description: 'OpenAI GPT-4o' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o-mini', description: 'OpenAI GPT-4o-mini' },
+  { value: 'gpt-5-mini', label: 'GPT-5-mini', description: 'OpenAI GPT-5-mini' },
+  { value: 'gpt-5-nano', label: 'GPT-5-nano', description: 'OpenAI GPT-5-nano' },
   { value: 'o3-mini', label: 'O3-mini', description: 'OpenAI O3-mini' },
   { value: 'gemini-2-5', label: 'Gemini 2.5', description: 'Google Gemini 2.5' },
 ];
@@ -20,7 +20,7 @@ export default function Home() {
   const [isBotGame, setIsBotGame] = useState(false);
   const [playerUrl, setPlayerUrl] = useState<string | null>(null);
   const [showBotSetup, setShowBotSetup] = useState(false);
-  const [selectedBots, setSelectedBots] = useState<string[]>(['gpt-4o', 'o3-mini']);
+  const [selectedBots, setSelectedBots] = useState<string[]>(['gpt-5-nano']);
   const wsRef = useRef<WebSocket | null>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
@@ -42,7 +42,7 @@ export default function Home() {
 
   const createBotGame = async () => {
     try {
-      const botList = selectedBots.length > 0 ? selectedBots : ['gpt-4o', 'o3-mini'];
+      const botList = selectedBots.length > 0 ? selectedBots : ['gpt-5-mini', 'gpt-5-nano'];
       setEvents(prev => [...prev, { type: 'system', message: `Creating a new bot game with: ${botList.join(', ')}...` }]);
       setShowBotSetup(false);
 

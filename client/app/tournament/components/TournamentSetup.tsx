@@ -13,7 +13,8 @@ interface TournamentSetupProps {
 }
 
 const BOT_TYPES = [
-  { value: 'gpt-4o-mini', label: 'GPT-4o-mini', description: 'OpenAI GPT-4o-mini' },
+  { value: 'gpt-5-mini', label: 'GPT-5-mini', description: 'OpenAI GPT-5-mini' },
+  { value: 'gpt-5-nano', label: 'GPT-5-nano', description: 'OpenAI GPT-5-nano' },
   { value: 'o3-mini', label: 'O3-mini', description: 'OpenAI O3-mini' },
   { value: 'gemini-2-5', label: 'Gemini 2.5', description: 'Google Gemini 2.5' },
 ];

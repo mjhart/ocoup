@@ -19,7 +19,7 @@
  *   --url <url>        - Connect directly to a game WebSocket URL
  *
  * Supported bot types:
- *   - gpt-4o           - OpenAI GPT-4o
+ *   - gpt-5-mini           - OpenAI gpt-5-mini
  *   - o3-mini          - OpenAI O3-mini
  *   - gemini-2-5       - Google Gemini 2.5
  *   - cli              - Command-line player (not recommended for tournaments)
@@ -29,13 +29,13 @@
  *   ./tournament-cli.js 4
  *
  *   # 2 human + 2 bot players
- *   ./tournament-cli.js 2 http://localhost:9000 gpt-4o o3-mini
+ *   ./tournament-cli.js 2 http://localhost:9000 gpt-5-mini o3-mini
  *
  *   # 3 bot players only
- *   ./tournament-cli.js 0 http://localhost:9000 gpt-4o o3-mini gemini-2-5
+ *   ./tournament-cli.js 0 http://localhost:9000 gpt-5-mini o3-mini gemini-2-5
  *
  *   # Custom server with mixed players
- *   ./tournament-cli.js 1 https://example.com gpt-4o gpt-4o o3-mini
+ *   ./tournament-cli.js 1 https://example.com gpt-5-mini gpt-5-mini o3-mini
  *
  *   # Direct connection to a game URL
  *   ./tournament-cli.js --url ws://localhost:9000/games/abc123/player
@@ -67,7 +67,7 @@ Arguments (Direct mode):
   --url <url>        - Connect directly to a game WebSocket URL
 
 Supported bot types:
-  - gpt-4o           - OpenAI GPT-4o
+  - gpt-5-mini           - OpenAI gpt-5-mini
   - o3-mini          - OpenAI O3-mini
   - gemini-2-5       - Google Gemini 2.5
   - cli              - Command-line player (not recommended for tournaments)
@@ -77,13 +77,13 @@ Examples:
   ./tournament-cli.js 4
 
   # 2 human + 2 bot players
-  ./tournament-cli.js 2 http://localhost:9000 gpt-4o o3-mini
+  ./tournament-cli.js 2 http://localhost:9000 gpt-5-mini o3-mini
 
   # 3 bot players only
-  ./tournament-cli.js 0 http://localhost:9000 gpt-4o o3-mini gemini-2-5
+  ./tournament-cli.js 0 http://localhost:9000 gpt-5-mini o3-mini gemini-2-5
 
   # Custom server with mixed players
-  ./tournament-cli.js 1 https://example.com gpt-4o gpt-4o o3-mini
+  ./tournament-cli.js 1 https://example.com gpt-5-mini gpt-5-mini o3-mini
 
   # Direct connection to a game URL
   ./tournament-cli.js --url ws://localhost:9000/games/abc123/player

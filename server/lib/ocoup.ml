@@ -15,8 +15,8 @@ let run_game ~game_state =
 
 let player_io_of_string = function
   | "cli" -> Player_ios.cli
-  | "gpt-4o" -> Player_ios.llm ~model:Llm_player_io.gpt_4o
-  | "gpt-4o-mini" -> Player_ios.llm ~model:Llm_player_io.gpt_4o_mini
+  | "gpt-5-mini" -> Player_ios.llm ~model:Llm_player_io.gpt_5_mini
+  | "gpt-5-nano" -> Player_ios.llm ~model:Llm_player_io.gpt_5_nano
   | "o3-mini" -> Player_ios.llm ~model:Llm_player_io.o3_mini
   | "gemini-2-5" ->
       fun player_id ->
@@ -303,8 +303,8 @@ module Server = struct
         let%bind game_state =
           Game_state.init
             [
-              Player_ios.llm ~model:Llm_player_io.gpt_4o;
-              Player_ios.llm ~model:Llm_player_io.o3_mini;
+              Player_ios.llm ~model:Llm_player_io.gpt_5_mini;
+              Player_ios.llm ~model:Llm_player_io.gpt_5_nano;
               (fun player_id ->
                 let player_io =
                   Websocket_player_io.create ~player_id ~reader ~writer
