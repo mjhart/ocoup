@@ -18,6 +18,12 @@ let player_io_of_string = function
   | "gpt-5-mini" -> Player_ios.llm ~model:Llm_player_io.gpt_5_mini
   | "gpt-5-nano" -> Player_ios.llm ~model:Llm_player_io.gpt_5_nano
   | "o3-mini" -> Player_ios.llm ~model:Llm_player_io.o3_mini
+  | "claude-opus-5" ->
+      Player_ios.anthropic ~model:Anthropic_player_io.claude_opus_5
+  | "claude-sonnet-5" ->
+      Player_ios.anthropic ~model:Anthropic_player_io.claude_sonnet_5
+  | "claude-haiku-4-5" ->
+      Player_ios.anthropic ~model:Anthropic_player_io.claude_haiku_4_5
   | "gemini-2-5" ->
       fun player_id ->
         Player_ios.gemini player_id

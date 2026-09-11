@@ -22,6 +22,9 @@
  *   - gpt-5-mini           - OpenAI gpt-5-mini
  *   - o3-mini          - OpenAI O3-mini
  *   - gemini-2-5       - Google Gemini 2.5
+ *   - claude-opus-5    - Anthropic Claude Opus 5
+ *   - claude-sonnet-5  - Anthropic Claude Sonnet 5
+ *   - claude-haiku-4-5 - Anthropic Claude Haiku 4.5
  *   - cli              - Command-line player (not recommended for tournaments)
  *
  * Examples:
@@ -70,6 +73,9 @@ Supported bot types:
   - gpt-5-mini           - OpenAI gpt-5-mini
   - o3-mini          - OpenAI O3-mini
   - gemini-2-5       - Google Gemini 2.5
+  - claude-opus-5    - Anthropic Claude Opus 5
+  - claude-sonnet-5  - Anthropic Claude Sonnet 5
+  - claude-haiku-4-5 - Anthropic Claude Haiku 4.5
   - cli              - Command-line player (not recommended for tournaments)
 
 Examples:

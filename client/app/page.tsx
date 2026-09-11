@@ -12,6 +12,9 @@ const BOT_TYPES = [
   { value: 'gpt-5-nano', label: 'GPT-5-nano', description: 'OpenAI GPT-5-nano' },
   { value: 'o3-mini', label: 'O3-mini', description: 'OpenAI O3-mini' },
   { value: 'gemini-2-5', label: 'Gemini 2.5', description: 'Google Gemini 2.5' },
+  { value: 'claude-opus-5', label: 'Claude Opus 5', description: 'Anthropic Claude Opus 5' },
+  { value: 'claude-sonnet-5', label: 'Claude Sonnet 5', description: 'Anthropic Claude Sonnet 5' },
+  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', description: 'Anthropic Claude Haiku 4.5' },
 ];
 
 export default function Home() {

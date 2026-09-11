@@ -21,6 +21,14 @@ let llm id ~model =
   let%map implementation = Llm_player_io.create id ~model in
   Packed ((module M), implementation)
 
+let anthropic id ~model =
+  let (module M) =
+    (module Anthropic_player_io : Player_io_S
+      with type t = Anthropic_player_io.t)
+  in
+  let%map implementation = Anthropic_player_io.create id ~model in
+  Packed ((module M), implementation)
+
 let gemini id ~model =
   let (module M) =
     (module Gemini_player_io : Player_io_S with type t = Gemini_player_io.t)
