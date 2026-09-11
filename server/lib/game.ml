@@ -151,17 +151,20 @@ module Game_state = struct
           Deferred.Or_error.error_string "Too many players"
       | num_players -> Deferred.Or_error.return num_players
     in
-    let deck =
+    let shuffled_deck =
       (* Random.self_init (); *)
       List.permute sorted_deck
     in
-    let paired_deck, _always_none =
-      List.fold deck ~init:([], None) ~f:(fun (pairs_acc, prev) card ->
-          match prev with
-          | None -> (pairs_acc, Some card)
-          | Some prev -> ((card, prev) :: pairs_acc, None))
+    (* Deal two cards to each player; everything else stays in the Court deck.
+       Dealing this way (rather than pairing up the whole deck) guarantees no
+       card is dropped when the deck has an odd number of cards. *)
+    let dealt_cards, deck = List.split_n shuffled_deck (2 * num_players) in
+    let player_cards =
+      List.chunks_of dealt_cards ~length:2
+      |> List.map ~f:(function
+           | [ card_1; card_2 ] -> (card_1, card_2)
+           | _ -> failwith "BUG: expected exactly two cards per player")
     in
-    let player_cards, remaining_cards = List.split_n paired_deck num_players in
     let%map players =
       List.zip_exn player_cards player_io_creators
       |> Deferred.List.map ~how:`Sequential
@@ -173,10 +176,6 @@ module Game_state = struct
                player_io;
                hand = Hand.Both (card_1, card_2);
              })
-    in
-    let deck =
-      List.concat_map remaining_cards ~f:(fun (carrd_1, card_2) ->
-          [ carrd_1; card_2 ])
     in
     Ok { players; deck; eliminated_players = [] }
 
@@ -366,7 +365,11 @@ let assassinate game_state active_player_id target_player_id =
     handle_challenge game_state active_player_id (`Assassinate target_player_id)
   with
   | `Successfully_challenged post_challenge_game_state ->
-      Deferred.Result.return post_challenge_game_state
+      (* The action failed, so the cost is refunded. [modify_player] is a no-op
+         if the assassin was eliminated by losing the challenge. *)
+      Game_state.modify_player post_challenge_game_state active_player_id
+        ~f:(fun player -> { player with coins = player.coins + 3 })
+      |> Deferred.Result.return
   | `Failed_or_no_challenge post_challenge_game_state -> (
       match
         Game_state.get_player_if_exists post_challenge_game_state
@@ -377,7 +380,8 @@ let assassinate game_state active_player_id target_player_id =
           match%bind.Deferred.Result
             Player_ios.choose_assasination_response target_player.player_io
               ~visible_game_state:
-                (Game_state.to_visible_game_state game_state target_player_id)
+                (Game_state.to_visible_game_state post_challenge_game_state
+                   target_player_id)
               ~asassinating_player_id:active_player_id
             >>| Result.return
           with
@@ -593,20 +597,29 @@ let take_turn_result game_state =
       coup game_state target_player_id
   | `Tax -> take_tax game_state
   | `Steal target_player_id -> steal game_state target_player_id
-  | `Exchange ->
-      let%bind.Deferred.Result () =
-        Game_state.players game_state
-        |> List.map ~f:(fun player ->
-               Player_ios.notify_of_action_choice player.player_io
-                 active_player.id action)
-        |> Deferred.all_unit >>| Result.return
-      in
-      exchange game_state >>| Result.return
+  | `Exchange -> (
+      match%bind.Deferred.Result
+        handle_challenge game_state active_player.id `Exchange
+      with
+      | `Successfully_challenged post_challenge_game_state ->
+          Deferred.Result.return post_challenge_game_state
+      | `Failed_or_no_challenge post_challenge_game_state ->
+          exchange post_challenge_game_state >>| Result.return)
 
 let take_turn game_state =
   let _ = Game_state.to_string_pretty in
+  let active_player_id = Game_state.get_active_player_id game_state in
   match%bind take_turn_result game_state with
-  | Ok game_state' -> return (`Repeat (Game_state.end_turn game_state'))
+  | Ok game_state' ->
+      (* If the active player was eliminated during their own turn they have
+         already been removed from the head of the list, so the next player is
+         already active and rotating again would skip them. *)
+      let game_state' =
+        if Game_state.player_in_game game_state' active_player_id then
+          Game_state.end_turn game_state'
+        else game_state'
+      in
+      return (`Repeat game_state')
   | Error final_game_state -> return (`Finished final_game_state)
 
 let run_game ~game_state =

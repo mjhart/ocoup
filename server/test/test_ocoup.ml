@@ -13,6 +13,7 @@ let%expect_test "basic interaction" =
         (1, Choose_action `Tax);
         (0, Offer_challenge `No_challenge);
         (0, Choose_action `Exchange);
+        (1, Offer_challenge `No_challenge);
         (0, Choose_cards_to_return);
       ]
   in
@@ -31,6 +32,7 @@ let%expect_test "basic interaction" =
     Player 1: Choose_action: Tax
     Player 0: Offer_challenge
     Player 0: Choose_action: Exchange
+    Player 1: Offer_challenge
     Player 0: Choose_cards_to_return
 
     Game state after all moves:
@@ -651,7 +653,7 @@ let%expect_test "4.4 challenge assassination - actor doesn't have assassin" =
     Game state after all moves:
     ((players
       (((id 1) (player_io <opaque>) (coins 3) (hand (Both Captain Ambassador)))
-       ((id 0) (player_io <opaque>) (coins 0)
+       ((id 0) (player_io <opaque>) (coins 3)
         (hand (One (hidden Captain) (revealed Duke))))))
      (deck
       (Duke Duke Assassin Assassin Assassin Captain Ambassador Ambassador
@@ -907,6 +909,90 @@ let%expect_test "5.9 challenge ambassador block - doesn't have ambassador" =
   return ()
 
 (* ========== Exchange (Ambassador) Tests ========== *)
+
+let%expect_test "6.1 successful challenge on exchange - actor lacks ambassador"
+    =
+  let%bind () =
+    run_test
+      ~starting_cards:
+        [ (Card.Duke, Card.Assassin); (Card.Captain, Card.Ambassador) ]
+      [
+        (0, Choose_action `Exchange);
+        (1, Offer_challenge `Challenge);
+        (0, Reveal_card `Card_1);
+      ]
+  in
+  [%expect
+    {|
+    Initial game state:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 2) (hand (Both Duke Assassin)))
+       ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))))
+     (deck
+      (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
+       Contessa Contessa))
+     (eliminated_players ()))
+
+    Player 0: Choose_action: Exchange
+    Player 1: Offer_challenge
+    Player 0: Reveal_card
+
+    Game state after all moves:
+    ((players
+      (((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Ambassador)))
+       ((id 0) (player_io <opaque>) (coins 2)
+        (hand (One (hidden Assassin) (revealed Duke))))))
+     (deck
+      (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
+       Contessa Contessa))
+     (eliminated_players ()))
+    |}];
+  return ()
+
+let%expect_test "6.2 failed challenge on exchange - actor has ambassador" =
+  let%bind () =
+    run_test ~print_notifications:()
+      ~starting_cards:
+        [ (Card.Ambassador, Card.Assassin); (Card.Captain, Card.Duke) ]
+      [
+        (0, Choose_action `Exchange);
+        (1, Offer_challenge `Challenge);
+        (1, Reveal_card `Card_1);
+        (0, Choose_cards_to_return);
+      ]
+  in
+  [%expect
+    {|
+    Initial game state:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 2) (hand (Both Ambassador Assassin)))
+       ((id 1) (player_io <opaque>) (coins 2) (hand (Both Captain Duke)))))
+     (deck
+      (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador Contessa
+       Contessa Contessa))
+     (eliminated_players ()))
+
+    Player 0: Choose_action: Exchange
+    Player 1: Offer_challenge
+    Player 0: Player 1 challenged (has_required_card: true)
+    Player 1: Player 1 challenged (has_required_card: true)
+    Player 0: Received new card (Assassin)
+    Player 1: Reveal_card
+    Player 0: Player 1 lost influence (Captain)
+    Player 1: Player 1 lost influence (Captain)
+    Player 0: Choose_cards_to_return
+
+    Game state after all moves:
+    ((players
+      (((id 1) (player_io <opaque>) (coins 2)
+        (hand (One (hidden Duke) (revealed Captain))))
+       ((id 0) (player_io <opaque>) (coins 2) (hand (Both Assassin Assassin)))))
+     (deck
+      (Assassin Contessa Contessa Ambassador Ambassador Captain Contessa Duke
+       Captain Ambassador Duke))
+     (eliminated_players ()))
+    |}];
+  return ()
 
 (* ========== Coup Tests ========== *)
 
@@ -1401,5 +1487,121 @@ let%expect_test "notifications" =
       (Duke Assassin Captain Ambassador Ambassador Ambassador Captain Duke
        Contessa))
      (eliminated_players ()))
+    |}];
+  return ()
+
+(* ========== Turn order ========== *)
+
+let%expect_test "9.1 next player is not skipped when active player eliminated" =
+  let%bind () =
+    run_test
+      ~starting_cards:
+        [
+          (Card.Captain, Card.Assassin);
+          (Card.Duke, Card.Ambassador);
+          (Card.Contessa, Card.Contessa);
+        ]
+      [
+        (0, Choose_action `Tax);
+        (1, Offer_challenge `Challenge);
+        (2, Offer_challenge `No_challenge);
+        (0, Reveal_card `Card_1);
+        (1, Choose_action `Income);
+        (2, Choose_action `Income);
+        (0, Choose_action `Tax);
+        (1, Offer_challenge `Challenge);
+        (2, Offer_challenge `No_challenge);
+        (* Player 0 is now eliminated during their own turn; player 1 must be
+           next, not player 2. *)
+        (1, Choose_action `Income);
+        (2, Choose_action `Income);
+      ]
+  in
+  [%expect
+    {|
+    Initial game state:
+    ((players
+      (((id 0) (player_io <opaque>) (coins 2) (hand (Both Captain Assassin)))
+       ((id 1) (player_io <opaque>) (coins 2) (hand (Both Duke Ambassador)))
+       ((id 2) (player_io <opaque>) (coins 2) (hand (Both Contessa Contessa)))))
+     (deck
+      (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador
+       Contessa))
+     (eliminated_players ()))
+
+    Player 0: Choose_action: Tax
+    Player 1: Offer_challenge
+    Player 2: Offer_challenge
+    Player 0: Reveal_card
+    Player 1: Choose_action: Income
+    Player 2: Choose_action: Income
+    Player 0: Choose_action: Tax
+    Player 1: Offer_challenge
+    Player 2: Offer_challenge
+    Player 1: Choose_action: Income
+    Player 2: Choose_action: Income
+
+    Game state after all moves:
+    ((players
+      (((id 1) (player_io <opaque>) (coins 4) (hand (Both Duke Ambassador)))
+       ((id 2) (player_io <opaque>) (coins 4) (hand (Both Contessa Contessa)))))
+     (deck
+      (Duke Duke Assassin Assassin Captain Captain Ambassador Ambassador
+       Contessa))
+     (eliminated_players
+      (((id 0) (player_io <opaque>) (coins 2)
+        (hand (One (hidden Assassin) (revealed Captain)))))))
+    |}];
+  return ()
+
+(* ========== Setup ========== *)
+
+let%expect_test "10.1 init deals two cards each and keeps all 15 cards" =
+  Log.Global.set_output [];
+  let module Game = Ocoup.For_testing.Game in
+  let%bind () =
+    Deferred.List.iter ~how:`Sequential [ 2; 3; 4; 5; 6 ] ~f:(fun num_players ->
+        let%map game_state =
+          Game.Game_state.init
+            (List.init num_players ~f:(fun _ _id ->
+                 return
+                   (Ocoup.For_testing.Player_ios.create
+                      (module Default_action_player_io)
+                      ())))
+          >>| Or_error.ok_exn
+        in
+        let deck_size = List.length game_state.deck in
+        let all_cards =
+          game_state.deck
+          @ List.concat_map game_state.players ~f:(fun player ->
+                match player.hand with
+                | Hand.Both (card_1, card_2) -> [ card_1; card_2 ]
+                | Hand.One _ -> failwith "Expected two cards at start")
+        in
+        let card_counts =
+          List.sort all_cards ~compare:Card.compare
+          |> List.map ~f:Card.to_string |> String.concat ~sep:" "
+        in
+        print_s
+          [%message
+            (num_players : int) (deck_size : int) (card_counts : string)])
+  in
+  [%expect
+    {|
+    ((num_players 2) (deck_size 11)
+     (card_counts
+      "Duke Duke Duke Assassin Assassin Assassin Captain Captain Captain Ambassador Ambassador Ambassador Contessa Contessa Contessa"))
+    ((num_players 3) (deck_size 9)
+     (card_counts
+      "Duke Duke Duke Assassin Assassin Assassin Captain Captain Captain Ambassador Ambassador Ambassador Contessa Contessa Contessa"))
+    ((num_players 4) (deck_size 7)
+     (card_counts
+      "Duke Duke Duke Assassin Assassin Assassin Captain Captain Captain Ambassador Ambassador Ambassador Contessa Contessa Contessa"))
+    ((num_players 5) (deck_size 5)
+     (card_counts
+      "Duke Duke Duke Assassin Assassin Assassin Captain Captain Captain Ambassador Ambassador Ambassador Contessa Contessa Contessa"))
+    ((num_players 6) (deck_size 3)
+     (card_counts
+      "Duke Duke Duke Assassin Assassin Assassin Captain Captain Captain Ambassador Ambassador Ambassador Contessa Contessa Contessa"))
     |}];
   return ()

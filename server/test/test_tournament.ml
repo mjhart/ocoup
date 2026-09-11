@@ -12,14 +12,10 @@ let%expect_test "test create rounds" =
   [%expect
     {|
     Round: 0
-    ((2 8 4 1 0) (6 9 7 5 3 10))
-    Round: 1
-    ((4 7 5 1 2) (0 9 6 3 10 8))
-    Round: 2
     ((5 7 4 9 3) (2 6 8 0 10 1))
-    Round: 3
+    Round: 1
     ((0 10 2 3 7) (8 5 4 1 6 9))
-    Round: 4
+    Round: 2
     ((3 8 2 1 10) (7 5 6 9 4 0))
     |}];
   return ()
@@ -51,22 +47,16 @@ let%expect_test "tourament" =
   [%expect
     {|
     Round 0
-    Game 0 winner: 2
-    Game 1 winner: 5
-    Round 1
-    Game 0 winner: 2
-    Game 1 winner: 3
-    Round 2
     Game 0 winner: 0
     Game 1 winner: 5
-    Round 3
+    Round 1
     Game 0 winner: 4
     Game 1 winner: 6
-    Round 4
+    Round 2
     Game 0 winner: 3
     Game 1 winner: 0
     |}];
   let scores = score_results result in
   print_s [%sexp (scores : int Ocoup.For_testing.Types.Player_id.Map.t)];
-  [%expect {| ((0 12) (1 3) (2 10) (3 9) (4 5) (5 9) (6 7)) |}];
+  [%expect {| ((0 9) (1 1) (2 4) (3 5) (4 3) (5 4) (6 7)) |}];
   return ()
