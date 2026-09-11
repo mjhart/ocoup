@@ -47,10 +47,64 @@ let headers =
             "Bearer " ^ (Sys.getenv "OPENAI_API_KEY" |> Option.value_exn) );
         ])
 
+(* Reasoning comes from the model's own reasoning rather than from a 'reasoning'
+   key in the json. Chat completions never hands it back, so this talks to the
+   responses api, where [summary] opts into a readable account of it. What comes
+   back is a summary - the raw chain of thought is never returned.
+
+   Every response is a small tactical decision and [Player_ios] gives each one a
+   60s deadline, so keep reasoning shallow. o3-mini predates reasoning
+   summaries, so it reasons without reporting any of it. *)
+let reasoning_params model =
+  `Assoc
+    (("effort", `String "low")
+    ::
+    (match String.equal model o3_mini with
+    | true -> []
+    | false -> [ ("summary", `String "auto") ]))
+
+(* The output array interleaves [reasoning] items holding the model's reasoning
+   with [message] items holding the json decision, so pick out each kind by
+   type. Either way the text sits in a list of blocks - under "summary" for
+   reasoning, "content" for a message - each with the text under "text". *)
+let items_text items ~item_type ~blocks_key =
+  List.filter_map items ~f:(fun item ->
+      match
+        ( Yojson.Basic.Util.member "type" item,
+          Yojson.Basic.Util.member blocks_key item )
+      with
+      | `String found_type, `List blocks when String.equal found_type item_type
+        ->
+          List.filter_map blocks ~f:(fun block ->
+              match Yojson.Basic.Util.member "text" block with
+              | `String text when not (String.is_empty text) -> Some text
+              | _ -> None)
+          |> String.concat ~sep:"\n" |> Option.some
+      | _, _ -> None)
+  |> List.filter ~f:(Fn.non String.is_empty)
+  |> String.concat ~sep:"\n"
+
+let response_content t body =
+  let json = Yojson.Basic.from_string body in
+  let items =
+    match Yojson.Basic.Util.member "output" json with
+    | `List items -> items
+    | _ -> failwith [%string "Invalid content: %{body}"]
+  in
+  let reasoning =
+    items_text items ~item_type:"reasoning" ~blocks_key:"summary"
+  in
+  let text = items_text items ~item_type:"message" ~blocks_key:"content" in
+  match String.is_empty (String.strip text) with
+  | true ->
+      log_string t "Empty response";
+      failwith [%string "Invalid content: %{body}"]
+  | false -> (reasoning, text)
+
 let send_request t prompt =
   let open Cohttp_async in
   enqueue_and_log t User prompt;
-  let messages =
+  let input =
     Queue.to_list t.events
     |> List.map ~f:(fun (role, content) ->
            `Assoc
@@ -64,29 +118,27 @@ let send_request t prompt =
       `Assoc
         [
           ("model", `String t.model);
-          ("messages", `List messages);
-          ("response_format", `Assoc [ ("type", `String "json_object") ]);
+          ("input", `List input);
+          ("reasoning", reasoning_params t.model);
+          ( "text",
+            `Assoc [ ("format", `Assoc [ ("type", `String "json_object") ]) ] );
         ]
     in
     Body.of_string (Yojson.Basic.to_string json)
   in
   let%bind _response, body =
     Client.post ~headers:(Lazy.force headers)
-      (Uri.of_string "https://api.openai.com/v1/chat/completions")
+      (Uri.of_string "https://api.openai.com/v1/responses")
       ~body:post_body
   in
   let%map body = Body.to_string body in
   log_string t body;
-  let json = Yojson.Basic.from_string body in
-  let content_string =
-    Yojson.Basic.Util.member "choices" json
-    |> Yojson.Basic.Util.to_list |> List.hd_exn
-    |> Yojson.Basic.Util.member "message"
-    |> Yojson.Basic.Util.member "content"
-    |> function
-    | `String content -> content
-    | _ -> failwith "Invalid content"
-  in
+  let reasoning, content_string = response_content t body in
+  (* Reasoning is logged but kept out of the transcript: the summary isn't the
+     reasoning the model actually did, and resending it every turn costs tokens
+     for little gain. *)
+  if not (String.is_empty reasoning) then
+    Log.info_s t.log [%message "Reasoning" (reasoning : string)];
   enqueue_and_log t Assistant content_string;
   Yojson.Basic.from_string content_string
 
@@ -125,11 +177,10 @@ let choose_action t ~visible_game_state =
       "%{visible_game_state_string}\n\
        Choose action: Income | Foreign_aid | Assassinate player_id | Coup \
        target_player_id | Tax | Steal target_player_id | Exchange. Respond \
-       with a json object with the key 'reasoning' containing the reasoning \
-       behind your choice as a string, and the key 'action' containing the \
-       action you want to take. If the action requires a target player, \
-       additionally provide the key 'target_player_id' and the value will be \
-       the the player_id of the target player."]
+       with a json object with the key 'action' containing the action you want \
+       to take. If the action requires a target player, additionally provide \
+       the key 'target_player_id' and the value will be the the player_id of \
+       the target player."]
   in
 
   let%map response = send_request t prompt in
@@ -166,8 +217,7 @@ let choose_assasination_response t ~visible_game_state ~asassinating_player_id =
       "%{visible_game_state_string}\n\
        You are being assassinated by player \
        %{asassinating_player_id#Player_id}. Respond with a json object with \
-       the key 'reasoning' containing the reasoning behind your choice as a \
-       string, and the key 'response' containing 'Allow' or 'Block'."]
+       the key 'response' containing 'Allow' or 'Block'."]
   in
   let%map response = send_request t prompt in
   let response = Yojson.Basic.Util.member "response" response in
@@ -186,8 +236,7 @@ let choose_foreign_aid_response t ~visible_game_state () ~cancelled_reason:_ =
     [%string
       "%{visible_game_state_string}\n\
        Player is attempting to take foreign aid. Respond with a json object \
-       with the key 'response' and the value being 'Allow' or 'Block'. Provide \
-       the reasoning behind your choice as a string in the key 'reasoning'."]
+       with the key 'response' and the value being 'Allow' or 'Block'."]
   in
   let%map response = send_request t prompt in
   let response = Yojson.Basic.Util.member "response" response in
@@ -206,11 +255,10 @@ let choose_steal_response t ~visible_game_state ~stealing_player_id =
     [%string
       "%{visible_game_state_string}\n\
        Player %{stealing_player_id#Player_id} is attempting to steal from you. \
-       Respond with a json object with the key 'reasoning' containing the \
-       reasoning behind your choice as a string, and the key 'response' \
-       containing 'Allow' or 'Block'. If you choose to block, additionally \
-       provide the card you are blocking with in the key 'card' with the value \
-       being 'Ambassador' or 'Captain'."]
+       Respond with a json object with the key 'response' containing 'Allow' \
+       or 'Block'. If you choose to block, additionally provide the card you \
+       are blocking with in the key 'card' with the value being 'Ambassador' \
+       or 'Captain'."]
   in
   let%map response = send_request t prompt in
   let action = Yojson.Basic.Util.member "response" response in
@@ -243,10 +291,9 @@ let choose_cards_to_return t ~visible_game_state card_1 card_2 hand =
       "%{visible_game_state_string}\n\
        You are exchanging cards. The cards available to you are \
        [%{cards_string}]. Choose two cards to return to the deck. Respond with \
-       a json object with the key 'reasoning' containing the reasoning behind \
-       your choice as a string, and the key 'response' containing a json array \
-       of size exactly 2 containing the indices of the cards you want to \
-       return. The indices are 0-indexed."]
+       a json object with the key 'response' containing a json array of size \
+       exactly 2 containing the indices of the cards you want to return. The \
+       indices are 0-indexed."]
   in
   let%map response = send_request t prompt in
   let indices = Yojson.Basic.Util.member "response" response in
@@ -270,10 +317,8 @@ let reveal_card t ~visible_game_state ~card_1 ~card_2 =
       "%{visible_game_state_string}\n\
        You have lost influence and must reveal a card. The cards available to \
        you are %{cards_string}. Which card do you want to reveal? Respond with \
-       a json object with the key 'reasoning' containing the reasoning behind \
-       your choice as a string, and the key 'response' containing the name of \
-       the card you want to reveal, exactly as it appears in the list of \
-       cards."]
+       a json object with the key 'response' containing the name of the card \
+       you want to reveal, exactly as it appears in the list of cards."]
   in
   let%map response = send_request t prompt in
   let response =
@@ -300,8 +345,7 @@ let offer_challenge t ~visible_game_state acting_player_id challengable
       "%{visible_game_state_string}\n\
        Player %{acting_player_id#Player_id} is attempting to perform \
        %{challengable#Challengable}. Respond with a json object with the key \
-       'reasoning' containing the reasoning behind your choice as a string, \
-       and the key 'response' containing 'No_challenge' or 'Challenge'."]
+       'response' containing 'No_challenge' or 'Challenge'."]
   in
   let%map response = send_request t prompt in
   let response = Yojson.Basic.Util.member "response" response in
